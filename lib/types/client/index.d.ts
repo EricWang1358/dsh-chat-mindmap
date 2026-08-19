@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis';
-import type { ConversationSnapshot, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client';
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client';
 type ClientContext = Context & {
     slots: SlotRegistry;
     sessions: SessionService;
@@ -8,7 +8,7 @@ export declare const inject: string[];
 type SessionService = {
     binding(id: string): {
         session?: {
-            getSnapshot(): ConversationSnapshot;
+            getSnapshot(): unknown;
             loadOlder(): Promise<void>;
         };
     } | undefined;

@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { MindmapDocument, MindmapNode } from './core.js'
+import { countMindmapNodes, validateMindmapDocument, type MindmapDocument } from './core.js'
 
 export interface MindmapConfig {
   layout: string
@@ -49,16 +50,21 @@ export interface MindmapSummary {
 
 let writeQueue: Promise<void> = Promise.resolve()
 
-const DEFAULT_CONFIG: MindmapConfig = {
+export const DEFAULT_CONFIG: MindmapConfig = {
   layout: 'logicalStructure',
   density: 'standard',
-  maxNodes: 120,
+  maxNodes: 360,
   theme: 'default',
   font: 'system',
   instruction: '',
   language: 'auto',
   contextLimit: 80_000,
 }
+
+const MAX_TITLE_LENGTH = 120
+const MAX_SOURCE_STRING_LENGTH = 500
+const MAX_METADATA_ENTRIES = 32
+const MAX_METADATA_VALUE_LENGTH = 500
 
 function rootPath(): string {
   return process.env.DSH_MINDMAP_HOME || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'chat-mindmap')
@@ -72,41 +78,138 @@ function safeId(id: string): string {
 function mapPath(id: string): string { return join(rootPath(), 'maps', `${safeId(id)}.json`) }
 
 function uid(): string {
-  return `map-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return `map-${Date.now().toString(36)}-${randomUUID().replaceAll('-', '').slice(0, 12)}`
 }
 
-function countNodes(node: MindmapNode): number {
-  return 1 + (node.children ?? []).reduce((sum, child) => sum + countNodes(child), 0)
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeConfig(config?: Partial<MindmapConfig>): MindmapConfig {
-  const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) }
-  return {
-    ...merged,
-    maxNodes: Math.max(8, Math.min(2000, Number(merged.maxNodes) || DEFAULT_CONFIG.maxNodes)),
-    contextLimit: Math.max(8_000, Math.min(200_000, Number(merged.contextLimit) || DEFAULT_CONFIG.contextLimit)),
-    instruction: String(merged.instruction || '').slice(0, 4000),
-    language: String(merged.language || 'auto').slice(0, 32),
+function boundedString(value: unknown, fallback: string, maxLength: number): string {
+  return typeof value === 'string' ? value.slice(0, maxLength) : fallback
+}
+
+function normalizeConfig(config?: Partial<MindmapConfig> | unknown): MindmapConfig {
+  const input = isRecord(config) ? config : {}
+  const density = input.density === 'compact' || input.density === 'detailed' ? input.density : DEFAULT_CONFIG.density
+  const numeric = (value: unknown, fallback: number, min: number, max: number): number => {
+    const parsed = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+    return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback
   }
+  return {
+    layout: boundedString(input.layout, DEFAULT_CONFIG.layout, 80),
+    density,
+    maxNodes: numeric(input.maxNodes, DEFAULT_CONFIG.maxNodes, 8, 2_000),
+    theme: boundedString(input.theme, DEFAULT_CONFIG.theme, 80),
+    font: boundedString(input.font, DEFAULT_CONFIG.font, 80),
+    instruction: boundedString(input.instruction, DEFAULT_CONFIG.instruction, 4_000),
+    language: boundedString(input.language, DEFAULT_CONFIG.language, 32),
+    contextLimit: numeric(input.contextLimit, DEFAULT_CONFIG.contextLimit, 8_000, 200_000),
+  }
+}
+
+function normalizeSource(source: unknown): MindmapSource | undefined {
+  if (!isRecord(source) || typeof source.kind !== 'string') return undefined
+  const allowedKinds = new Set(['text', 'pdf', 'image', 'document', 'chat', 'unknown'])
+  const kind = allowedKinds.has(source.kind) ? source.kind as MindmapSource['kind'] : 'unknown'
+  const result: MindmapSource = { kind }
+  for (const key of ['name', 'attachmentId', 'sessionId', 'workspaceId'] as const) {
+    if (typeof source[key] === 'string' && source[key].length > 0) result[key] = source[key].slice(0, MAX_SOURCE_STRING_LENGTH)
+  }
+  if (isRecord(source.metadata)) {
+    const metadata: Record<string, string> = {}
+    for (const [key, value] of Object.entries(source.metadata).slice(0, MAX_METADATA_ENTRIES)) {
+      if (typeof value === 'string') metadata[key.slice(0, 100)] = value.slice(0, MAX_METADATA_VALUE_LENGTH)
+    }
+    if (Object.keys(metadata).length) result.metadata = metadata
+  }
+  return result
 }
 
 async function atomicJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
-  const tmp = `${path}.${process.pid}.tmp`
-  await writeFile(tmp, JSON.stringify(value, null, 2), 'utf8')
-  await rename(tmp, path)
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    await writeFile(tmp, JSON.stringify(value, null, 2), 'utf8')
+    await rename(tmp, path)
+  } catch (error) {
+    await unlink(tmp).catch(() => undefined)
+    throw error
+  }
 }
 
 async function readJson<T>(path: string, fallback: T): Promise<T> {
-  try { return JSON.parse(await readFile(path, 'utf8')) as T } catch { return fallback }
+  let text: string
+  try {
+    text = await readFile(path, 'utf8')
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return fallback
+    throw error
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(`invalid JSON in ${path}`)
+  }
 }
 
 async function readRecord(id: string): Promise<MindmapRecord | null> {
-  try { return JSON.parse(await readFile(mapPath(id), 'utf8')) as MindmapRecord } catch { return null }
+  const path = mapPath(id)
+  let text: string
+  try {
+    text = await readFile(path, 'utf8')
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return null
+    throw error
+  }
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new Error(`invalid JSON in ${path}`)
+  }
+  return validateMindmapRecord(value, id, path)
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
+}
+
+function validateMindmapRecord(value: unknown, expectedId: string, path: string): MindmapRecord {
+  if (!isRecord(value) || value.libraryId !== expectedId || typeof value.title !== 'string' || value.title.length > MAX_TITLE_LENGTH ||
+    typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string' || typeof value.archived !== 'boolean' && typeof value.archived !== 'undefined') {
+    throw new Error(`invalid mindmap record in ${path}`)
+  }
+  const current = validateMindmapDocument(value.current, { maxNodes: 2_000, maxDepth: 32 })
+  const previous = typeof value.previous === 'undefined' ? undefined : validateMindmapDocument(value.previous, { maxNodes: 2_000, maxDepth: 32 })
+  const record: MindmapRecord = {
+    libraryId: expectedId,
+    title: value.title,
+    current,
+    ...(previous ? { previous } : {}),
+    config: normalizeConfig(value.config),
+    ...(value.source ? { source: normalizeSource(value.source) } : {}),
+    ...(value.archived ? { archived: true } : {}),
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  }
+  return record
+}
+
+async function readIndex(): Promise<string[]> {
+  const ids = await readJson<unknown>(indexPath(), [])
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) throw new Error(`invalid mindmap index in ${indexPath()}`)
+  return ids.map((id) => safeId(id))
+}
+
+function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const run = writeQueue.catch(() => undefined).then(operation)
+  writeQueue = run.then(() => undefined, () => undefined)
+  return run
 }
 
 export async function listMindmaps(filters?: { workspaceId?: string; sessionId?: string; archived?: boolean }): Promise<MindmapSummary[]> {
-  const ids = await readJson<string[]>(indexPath(), [])
+  const ids = await readIndex()
   const records = await Promise.all(ids.map(readRecord))
   return records.filter((record): record is MindmapRecord => record !== null &&
     (filters?.archived === undefined ? !record.archived : Boolean(record.archived) === filters.archived) &&
@@ -122,12 +225,12 @@ export async function listMindmaps(filters?: { workspaceId?: string; sessionId?:
       updatedAt: record.updatedAt,
       hasPrevious: Boolean(record.previous),
       archived: Boolean(record.archived),
-      nodeCount: countNodes(record.current.root),
+      nodeCount: countMindmapNodes(record.current.root),
     }))
 }
 
 export async function getMindmap(id: string): Promise<MindmapRecord | null> {
-  return readRecord(id)
+  return readRecord(safeId(id))
 }
 
 export async function saveMindmap(input: {
@@ -139,31 +242,29 @@ export async function saveMindmap(input: {
   archived?: boolean
   rotatePrevious?: boolean
 }): Promise<MindmapRecord> {
-  const now = new Date().toISOString()
-  const id = input.libraryId || uid()
-  const existing = await readRecord(id)
-  const record: MindmapRecord = {
-    libraryId: id,
-    title: input.title || input.document.title,
-    current: input.document,
-    previous: input.rotatePrevious === false ? existing?.previous : existing?.current,
-    config: normalizeConfig({ ...existing?.config, ...input.config }),
-    source: input.source ?? existing?.source,
-    archived: input.archived ?? existing?.archived ?? false,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  }
-  await new Promise<void>((resolve, reject) => {
-    const run = writeQueue.catch(() => undefined).then(async () => {
-      await atomicJson(mapPath(id), record)
-      const ids = await readJson<string[]>(indexPath(), [])
-      if (!ids.includes(id)) ids.push(id)
-      await atomicJson(indexPath(), ids)
-    })
-    writeQueue = run
-    run.then(resolve, reject)
+  return enqueueWrite(async () => {
+    const id = input.libraryId ? safeId(input.libraryId) : uid()
+    const existing = await readRecord(id)
+    const config = normalizeConfig({ ...existing?.config, ...input.config })
+    const document = validateMindmapDocument(input.document, { maxNodes: config.maxNodes, maxDepth: 32 })
+    const now = new Date().toISOString()
+    const record: MindmapRecord = {
+      libraryId: id,
+      title: boundedString(input.title || document.title, document.title, MAX_TITLE_LENGTH),
+      current: document,
+      previous: input.rotatePrevious === false ? existing?.previous : existing?.current,
+      config,
+      source: normalizeSource(input.source) ?? existing?.source,
+      archived: input.archived ?? existing?.archived ?? false,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+    await atomicJson(mapPath(id), record)
+    const ids = await readIndex()
+    if (!ids.includes(id)) ids.push(id)
+    await atomicJson(indexPath(), ids)
+    return record
   })
-  return record
 }
 
 export async function updateMindmap(id: string, patch: {
@@ -173,16 +274,27 @@ export async function updateMindmap(id: string, patch: {
   archived?: boolean
   rotatePrevious?: boolean
 }): Promise<MindmapRecord | null> {
-  const existing = await readRecord(id)
-  if (!existing) return null
-  return saveMindmap({
-    libraryId: id,
-    title: patch.title ?? existing.title,
-    document: patch.document ?? existing.current,
-    config: { ...existing.config, ...patch.config },
-    source: existing.source,
-    archived: patch.archived ?? existing.archived,
-    rotatePrevious: patch.rotatePrevious ?? patch.document !== undefined,
+  return enqueueWrite(async () => {
+    const safeLibraryId = safeId(id)
+    const existing = await readRecord(safeLibraryId)
+    if (!existing) return null
+    const config = normalizeConfig({ ...existing.config, ...patch.config })
+    const document = patch.document ? validateMindmapDocument(patch.document, { maxNodes: config.maxNodes, maxDepth: 32 }) : existing.current
+    const now = new Date().toISOString()
+    const record: MindmapRecord = {
+      ...existing,
+      title: boundedString(patch.title ?? existing.title, existing.title, MAX_TITLE_LENGTH),
+      current: document,
+      previous: patch.rotatePrevious === false ? existing.previous : patch.document ? existing.current : existing.previous,
+      config,
+      archived: patch.archived ?? existing.archived ?? false,
+      updatedAt: now,
+    }
+    await atomicJson(mapPath(safeLibraryId), record)
+    const ids = await readIndex()
+    if (!ids.includes(safeLibraryId)) ids.push(safeLibraryId)
+    await atomicJson(indexPath(), ids)
+    return record
   })
 }
 
@@ -191,11 +303,16 @@ export async function archiveMindmap(id: string, archived = true): Promise<Mindm
 }
 
 export async function deleteMindmap(id: string): Promise<boolean> {
-  const ids = await readJson<string[]>(indexPath(), [])
-  if (!ids.includes(id)) return false
-  await atomicJson(indexPath(), ids.filter((value) => value !== id))
-  try { await unlink(mapPath(id)) } catch { /* already absent */ }
-  return true
+  return enqueueWrite(async () => {
+    const safeLibraryId = safeId(id)
+    const ids = await readIndex()
+    if (!ids.includes(safeLibraryId)) return false
+    await atomicJson(indexPath(), ids.filter((value) => value !== safeLibraryId))
+    try {
+      await unlink(mapPath(safeLibraryId))
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== 'ENOENT') throw error
+    }
+    return true
+  })
 }
-
-export { DEFAULT_CONFIG }

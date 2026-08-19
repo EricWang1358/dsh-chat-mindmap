@@ -1,4 +1,4 @@
-import type { MindmapDocument } from './core.js';
+import { type MindmapDocument } from './core.js';
 export interface MindmapConfig {
     layout: string;
     density: 'compact' | 'standard' | 'detailed';
@@ -39,7 +39,7 @@ export interface MindmapSummary {
     archived: boolean;
     nodeCount: number;
 }
-declare const DEFAULT_CONFIG: MindmapConfig;
+export declare const DEFAULT_CONFIG: MindmapConfig;
 export declare function listMindmaps(filters?: {
     workspaceId?: string;
     sessionId?: string;
@@ -64,4 +64,3 @@ export declare function updateMindmap(id: string, patch: {
 }): Promise<MindmapRecord | null>;
 export declare function archiveMindmap(id: string, archived?: boolean): Promise<MindmapRecord | null>;
 export declare function deleteMindmap(id: string): Promise<boolean>;
-export { DEFAULT_CONFIG };

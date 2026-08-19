@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
+const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+assert.ok(packageJson.exports['.'])
+assert.ok(packageJson.exports['./client'])
+assert.ok(packageJson.files.includes('lib'))
+
+const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const useShell = process.platform === 'win32'
+const packs = JSON.parse(execFileSync(npmBin, ['pack', '--json'], { cwd: root, encoding: 'utf8', shell: useShell }))
+const pack = packs[0]
+assert.equal(typeof pack?.filename, 'string')
+const published = new Set(pack.files.map((file) => file.path))
+for (const required of [
+  'package.json',
+  'lib/index.js',
+  'lib/client.js',
+  'lib/types/index.d.ts',
+  'lib/types/client/index.d.ts',
+]) assert.ok(published.has(required), `missing published artifact: ${required}`)
+
+// DSH supplies the package's Host/UI services as peers. Import behavior is
+// covered by project tests against the real local DSH graph; a bare npm temp
+// project has no equivalent composition and is not a meaningful install target.
+await rm(join(root, pack.filename), { force: true })
+console.log('package verification passed')
