@@ -166,6 +166,7 @@ The GUI verification path has been exercised:
 3. Open `脑图`, click `新建`, paste Markdown, and click `生成并保存`.
 4. The persistent library entry renders in the left list and the editable canvas renders on the right.
 5. The `XMind` button becomes enabled and downloads an `.xmind` archive. The archive contains `content.json`, `content.xml`, `metadata.json`, and `manifest.json`; the generated `content.json` was inspected successfully.
+6. Layout changes call SimpleMindMap's live `setLayout` and re-render path; theme changes call `setThemeConfig` and re-render immediately. The UI exposes 14 layout choices and 10 visual presets: default, Classic 4, ocean, forest, sunset, lavender, graphite, rose, amber, and high contrast.
 
 ## Design decisions
 

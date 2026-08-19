@@ -13,13 +13,52 @@ export const inject = ['slots', 'sessions']
 type MindMapLike = {
   doExport?: { export(type: string, download: boolean, ...args: unknown[]): Promise<unknown> }
   resize(): void
+  render?(callback?: (() => void) | null, source?: string): void
+  reRender?(callback?: (() => void) | null, source?: string): void
+  setLayout?(layout: string, notRender?: boolean): void
+  setTheme?(theme: string, notRender?: boolean): void
+  setThemeConfig?(config: Record<string, unknown>, notRender?: boolean): void
   getData?(withConfig?: boolean): unknown
   on?(event: string, listener: (data?: unknown) => void): void
   off?(event: string, listener: (data?: unknown) => void): void
   destroy?(): void
 }
-type MindMapCtor = new (options: { el: HTMLElement; data: unknown; layout: string; theme?: string; fit?: boolean }) => MindMapLike
+type MindMapCtor = new (options: { el: HTMLElement; data: unknown; layout: string; theme?: string; themeConfig?: Record<string, unknown>; fit?: boolean }) => MindMapLike
 type MindmapConfig = { layout: string; density: string; maxNodes: number; theme: string; font: string; instruction: string; language: string; contextLimit: number }
+
+type ThemePreset = { label: string; config: Record<string, unknown> }
+
+const LAYOUT_OPTIONS = [
+  ['logicalStructure', '逻辑结构图'],
+  ['logicalStructureLeft', '向左逻辑结构图'],
+  ['mindMap', '思维导图'],
+  ['organizationStructure', '组织结构图'],
+  ['catalogOrganization', '目录组织图'],
+  ['timeline', '时间轴'],
+  ['timeline2', '时间轴 2'],
+  ['verticalTimeline', '竖向时间轴'],
+  ['verticalTimeline2', '竖向时间轴 2'],
+  ['verticalTimeline3', '竖向时间轴 3'],
+  ['fishbone', '鱼骨图'],
+  ['fishbone2', '鱼骨图 2'],
+  ['rightFishbone', '向右鱼骨图'],
+  ['rightFishbone2', '向右鱼骨图 2'],
+] as const
+
+const THEME_PRESETS: Record<string, ThemePreset> = {
+  default: { label: '默认青绿', config: {} },
+  classic4: { label: 'Classic 4（经典）', config: { backgroundColor: '#fffdf5', lineColor: '#8b7355', generalizationLineColor: '#8b7355', root: { fillColor: '#8b7355', color: '#fff', borderColor: '#6f5a43' }, second: { fillColor: '#f5ead7', color: '#4a3828', borderColor: '#c9a66b' }, node: { color: '#5c4632', borderColor: 'transparent' } } },
+  ocean: { label: '海洋蓝', config: { backgroundColor: '#eff6ff', lineColor: '#2563eb', generalizationLineColor: '#2563eb', root: { fillColor: '#1d4ed8', color: '#fff', borderColor: '#1e40af' }, second: { fillColor: '#dbeafe', color: '#1e3a8a', borderColor: '#60a5fa' }, node: { color: '#1e3a8a', borderColor: 'transparent' } } },
+  forest: { label: '森林绿', config: { backgroundColor: '#f0fdf4', lineColor: '#15803d', generalizationLineColor: '#15803d', root: { fillColor: '#166534', color: '#fff', borderColor: '#14532d' }, second: { fillColor: '#dcfce7', color: '#14532d', borderColor: '#4ade80' }, node: { color: '#166534', borderColor: 'transparent' } } },
+  sunset: { label: '日落橙', config: { backgroundColor: '#fff7ed', lineColor: '#ea580c', generalizationLineColor: '#ea580c', root: { fillColor: '#c2410c', color: '#fff', borderColor: '#9a3412' }, second: { fillColor: '#ffedd5', color: '#7c2d12', borderColor: '#fb923c' }, node: { color: '#9a3412', borderColor: 'transparent' } } },
+  lavender: { label: '薰衣草紫', config: { backgroundColor: '#faf5ff', lineColor: '#9333ea', generalizationLineColor: '#9333ea', root: { fillColor: '#7e22ce', color: '#fff', borderColor: '#6b21a8' }, second: { fillColor: '#f3e8ff', color: '#581c87', borderColor: '#c084fc' }, node: { color: '#6b21a8', borderColor: 'transparent' } } },
+  graphite: { label: '石墨灰', config: { backgroundColor: '#f8fafc', lineColor: '#475569', generalizationLineColor: '#475569', root: { fillColor: '#334155', color: '#fff', borderColor: '#1e293b' }, second: { fillColor: '#e2e8f0', color: '#1e293b', borderColor: '#94a3b8' }, node: { color: '#334155', borderColor: 'transparent' } } },
+  rose: { label: '玫瑰红', config: { backgroundColor: '#fff1f2', lineColor: '#e11d48', generalizationLineColor: '#e11d48', root: { fillColor: '#be123c', color: '#fff', borderColor: '#9f1239' }, second: { fillColor: '#ffe4e6', color: '#881337', borderColor: '#fb7185' }, node: { color: '#9f1239', borderColor: 'transparent' } } },
+  amber: { label: '琥珀金', config: { backgroundColor: '#fffbeb', lineColor: '#d97706', generalizationLineColor: '#d97706', root: { fillColor: '#b45309', color: '#fff', borderColor: '#92400e' }, second: { fillColor: '#fef3c7', color: '#78350f', borderColor: '#fbbf24' }, node: { color: '#92400e', borderColor: 'transparent' } } },
+  contrast: { label: '高对比黑白', config: { backgroundColor: '#fff', lineColor: '#111827', generalizationLineColor: '#111827', root: { fillColor: '#111827', color: '#fff', borderColor: '#000' }, second: { fillColor: '#fff', color: '#111827', borderColor: '#111827' }, node: { color: '#111827', borderColor: 'transparent' } } },
+}
+
+function themePreset(theme: string): ThemePreset { return THEME_PRESETS[theme] ?? THEME_PRESETS.default }
 type MindmapSource = { kind: string; name?: string; attachmentId?: string; sessionId?: string; workspaceId?: string }
 type MindmapRecord = { libraryId: string; title: string; current: MindmapDocument; previous?: MindmapDocument; config: MindmapConfig; source?: MindmapSource; archived?: boolean; updatedAt: string }
 type MindmapSummary = { libraryId: string; title: string; source?: MindmapSource; config: MindmapConfig; updatedAt: string; hasPrevious: boolean; archived: boolean; nodeCount: number }
@@ -87,7 +126,7 @@ function MapCanvas({ record, onDocumentChange, onXmind }: { record: MindmapRecor
     canvas.replaceChildren()
     void loadMindMap().then((MindMap) => {
       if (!alive || !canvasRef.current) return
-      const instance = new MindMap({ el: canvasRef.current, data: toSimpleMindMapData(record.current.root), layout: record.config.layout, theme: record.config.theme, fit: true })
+      const instance = new MindMap({ el: canvasRef.current, data: toSimpleMindMapData(record.current.root), layout: record.config.layout, theme: 'default', themeConfig: themePreset(record.config.theme).config, fit: true })
       mapRef.current = instance
       const changed = () => {
         const raw = instance.getData?.(false) as { root?: unknown } | undefined
@@ -100,10 +139,26 @@ function MapCanvas({ record, onDocumentChange, onXmind }: { record: MindmapRecor
       }
       instance.on?.('data_change', changed)
       window.setTimeout(() => instance.resize(), 0)
+      const applyAppearance = () => {
+        instance.setThemeConfig?.(themePreset(record.config.theme).config)
+        instance.setLayout?.(record.config.layout)
+        instance.resize()
+      }
+      applyAppearance()
       if (instance.doExport) void instance.doExport.export('xmind', false, record.title, instance.getData?.(false)).then((value) => { if (alive) onXmind(asBlob(value)) }).catch(() => onXmind(null))
     }).catch(() => onXmind(null))
     return () => { alive = false; if (saveTimer.current !== null) window.clearTimeout(saveTimer.current); mapRef.current?.destroy?.(); mapRef.current = null; canvas.replaceChildren() }
   }, [record.libraryId])
+  useEffect(() => {
+    const instance = mapRef.current
+    if (!instance) return
+    instance.setThemeConfig?.(themePreset(record.config.theme).config)
+    instance.setLayout?.(record.config.layout)
+    instance.reRender?.(() => instance.resize(), 'chat-mindmap: appearance-change')
+    if (!instance.reRender) {
+      instance.render?.(() => instance.resize(), 'chat-mindmap: appearance-change')
+    }
+  }, [record.config.layout, record.config.theme])
   return createElement('div', { ref: canvasRef, style: { flex: 1, minHeight: '480px', borderRadius: '8px', overflow: 'hidden', background: '#fff' } })
 }
 
@@ -147,7 +202,15 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   const archive = () => { if (!record) return; void api<MindmapRecord>(`/maps/${encodeURIComponent(record.libraryId)}/archive`, { method: 'POST' }).then(() => { setSelectedId(undefined); refresh() }) }
   const restore = () => { if (!record) return; void api<MindmapRecord>(`/maps/${encodeURIComponent(record.libraryId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: false }) }).then(() => { setSelectedId(undefined); refresh() }) }
   const remove = () => { if (!record || !window.confirm('删除后不可恢复，确认删除？')) return; void api<{ deleted: boolean }>(`/maps/${encodeURIComponent(record.libraryId)}`, { method: 'DELETE' }).then(() => { setSelectedId(undefined); refresh() }) }
-  const visualConfig = (config: Partial<MindmapConfig>) => { if (!record) return; void api<MindmapRecord>(`/maps/${record.libraryId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config }) }).then(setRecord) }
+  const visualConfig = (config: Partial<MindmapConfig>) => {
+    if (!record) return
+    const before = record
+    setRecord({ ...record, config: { ...record.config, ...config } })
+    setStatus('正在应用外观配置…')
+    void api<MindmapRecord>(`/maps/${record.libraryId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config }) })
+      .then((next) => { setRecord(next); setStatus('外观已立即应用并保存') })
+      .catch((error) => { setRecord(before); setStatus(`外观保存失败：${String(error)}`) })
+  }
 
   return createElement('main', { style: panelStyle() },
     createElement('header', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' } }, createElement('strong', null, '脑图库'), createElement('span', { style: { opacity: .65 } }, `${maps.length} 张`), createElement('button', { type: 'button', onClick: () => setShowArchived((value) => !value), style: buttonStyle() }, showArchived ? '活动脑图' : '归档'), createElement('button', { type: 'button', onClick: () => setShowCreate((value) => !value), style: { ...buttonStyle(), marginLeft: 'auto' } }, '新建')),
@@ -157,7 +220,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
       createElement('aside', { style: { overflow: 'auto', borderRight: '1px solid #334155', paddingRight: '8px' } }, maps.map((item) => createElement('button', { key: item.libraryId, type: 'button', onClick: () => setSelectedId(item.libraryId), style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px', marginBottom: '5px', border: 0, borderRadius: '6px', background: selectedId === item.libraryId ? '#334155' : 'transparent', color: 'inherit', cursor: 'pointer' } }, createElement('strong', null, item.title), createElement('small', { style: { display: 'block', opacity: .65 } }, `${item.nodeCount} 节点 · ${item.source?.kind ?? 'unknown'}`)))),
       record ? createElement('section', { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' } },
         createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' } }, createElement('strong', null, record.title), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([JSON.stringify(record.current, null, 2)], { type: 'application/json' }), `${record.title}.json`), style: buttonStyle() }, 'JSON'), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([markdown(record.current.root)], { type: 'text/markdown' }), `${record.title}.md`), style: buttonStyle() }, 'Markdown'), createElement('button', { type: 'button', disabled: !xmind, onClick: () => xmind && downloadBlob(xmind, `${record.title}.xmind`), style: buttonStyle() }, 'XMind'), createElement('button', { type: 'button', onClick: regenerate, style: buttonStyle() }, '重新生成'), record.archived ? createElement('button', { type: 'button', onClick: restore, style: buttonStyle() }, '恢复') : createElement('button', { type: 'button', onClick: archive, style: buttonStyle() }, '归档'), createElement('button', { type: 'button', onClick: remove, style: { ...buttonStyle(), color: '#fca5a5' } }, '删除')),
-        createElement('div', { style: { display: 'flex', gap: '6px' } }, createElement('select', { value: record.config.layout, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ layout: event.target.value }), style: inputStyle() }, createElement('option', { value: 'logicalStructure' }, '逻辑结构'), createElement('option', { value: 'logicalStructureLeft' }, '左逻辑结构'), createElement('option', { value: 'mindMap' }, '中心发散')), createElement('select', { value: record.config.theme, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ theme: event.target.value }), style: inputStyle() }, createElement('option', { value: 'default' }, '默认主题'), createElement('option', { value: 'classic4' }, 'Classic 4')), createElement('button', { type: 'button', onClick: () => setNoteOpen((value) => !value), style: buttonStyle() }, noteOpen ? '收起备注' : '备注 / 补充')),
+        createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, createElement('select', { value: record.config.layout, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ layout: event.target.value }), style: inputStyle(), 'aria-label': '布局' }, LAYOUT_OPTIONS.map(([value, label]) => createElement('option', { key: value, value }, label))), createElement('select', { value: record.config.theme, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ theme: event.target.value }), style: inputStyle(), 'aria-label': '主题' }, Object.entries(THEME_PRESETS).map(([value, preset]) => createElement('option', { key: value, value }, preset.label))), createElement('button', { type: 'button', onClick: () => setNoteOpen((value) => !value), style: buttonStyle() }, noteOpen ? '收起备注' : '备注 / 补充')),
         createElement(MapCanvas, { record, onDocumentChange: persistDocument, onXmind: setXmind }))
         : createElement('section', { style: { display: 'grid', placeItems: 'center', minHeight: '480px', opacity: .7 } }, '暂无脑图。可以点击“新建”，或让 Agent 从文本/PDF/附件生成。')),
     createElement('span', { style: { opacity: .7 } }, status),
