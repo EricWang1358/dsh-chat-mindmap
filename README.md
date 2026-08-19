@@ -36,6 +36,71 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
 
 ## Install / build
 
+There are three different installation modes. **Do not use `dev_inject_plugin` for a normal installation**: it is a temporary live injection and is intentionally lost after DSH restarts.
+
+### A. End user: published npm package (recommended once released)
+
+After this package is published under its final npm name, an end user runs this from any directory:
+
+```powershell
+dsh plugin --profile web add @dsh-external/dsh-chat-mindmap@0.1.0
+```
+
+`dsh plugin` forwards to pnpm, writes the dependency into `~/.dsh/profiles/web/package.json`, adds the package to `dsh.profile.bundles`, and makes it survive restart. Then restart the DSH Web profile:
+
+```powershell
+dsh web
+```
+
+If the package is published under a different scope/name, replace the package spec in the command. The package must be published with the built `lib/` directory; users should not need the source checkout or DSH source tree.
+
+### B. End user: GitHub repository
+
+Once the repository URL in `package.json` is replaced with the real public repository, an end user can install the Git package persistently:
+
+```powershell
+dsh plugin --profile web add github:OWNER/dsh-chat-mindmap
+```
+
+For a tagged release:
+
+```powershell
+dsh plugin --profile web add github:OWNER/dsh-chat-mindmap#v0.1.0
+```
+
+The Git repository must contain built `lib/` artifacts, or a verified `prepare`/build workflow. This checkout currently has no configured public Git remote, so replace `OWNER` only after publishing the repository. For the most reliable user install, publish npm or attach a built tarball instead of requiring every user to compile TypeScript.
+
+### C. End user: built `.tgz` artifact
+
+A maintainer builds and packs the plugin:
+
+```powershell
+npm install --legacy-peer-deps
+npm run build
+npm pack
+```
+
+Then copy the generated `.tgz` to the target machine and install it persistently. On Windows, use a `file:` URL with forward slashes or an absolute tarball path:
+
+```powershell
+dsh plugin --profile web add file:C:/path/to/dsh-external-dsh-chat-mindmap-0.1.0.tgz
+# equivalent: dsh plugin --profile web add C:/path/to/dsh-external-dsh-chat-mindmap-0.1.0.tgz
+```
+
+Restart DSH after installation. The `health` URL is an API endpoint, not a standalone app page; if the plugin is not installed/persisted, DSH's SPA fallback will return the conversation shell HTML instead of JSON. Verify the named route rather than opening it as a browser page:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:3080/@dsh-external/dsh-chat-mindmap/health
+```
+
+Expected content:
+
+```json
+{"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":2}
+```
+
+### D. Local developer checkout
+
 The build uses the DSH checkout's TypeScript compiler and produces host and browser bundles:
 
 ```powershell
@@ -44,17 +109,17 @@ npm install --legacy-peer-deps
 npm run build
 ```
 
-For the local super-injector:
+For a **persistent** local profile installation, use the supported package installer:
+
+```text
+dev_install_package {"dir":"D:/A/1NUS/1Sem/dsh-chat-mindmap","profile":"web"}
+```
+
+Only for temporary development/testing:
 
 ```text
 dev_build_plugin {"dir":"D:/A/1NUS/1Sem/dsh-chat-mindmap"}
 dev_inject_plugin {"dir":"D:/A/1NUS/1Sem/dsh-chat-mindmap"}
-```
-
-The normal profile installation path is:
-
-```text
-dev_install_package {"dir":"D:/A/1NUS/1Sem/dsh-chat-mindmap","profile":"web"}
 ```
 
 ## Agent usage

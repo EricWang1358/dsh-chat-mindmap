@@ -23,9 +23,8 @@
     "cordis.patch.yml"
   ],
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/your-org/dsh-chat-mindmap"
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "dsh",
