@@ -1,0 +1,4 @@
+# Adds the chat-to-mindmap dual-face plugin to the web profile roster.
+- insert:
+    - id: dsh-chat-mindmap
+      name: '@dsh-external/dsh-chat-mindmap'

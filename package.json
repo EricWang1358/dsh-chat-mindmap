@@ -1,0 +1,78 @@
+{
+  "name": "@dsh-external/dsh-chat-mindmap",
+  "version": "0.1.0",
+  "description": "Generate editable mind maps from agent-provided chat context inside DSH.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "LICENSE",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/dsh-chat-mindmap"
+  },
+  "keywords": [
+    "dsh",
+    "mindmap",
+    "chat",
+    "simple-mind-map",
+    "plugin"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc <2",
+    "react": ">=18 <20"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7",
+    "@tsdown/css": "^0.22.14",
+    "@types/node": "^24.13.3",
+    "@types/react": "^18.3.0",
+    "react": "^18.3.1",
+    "simple-mind-map": "^0.14.0-fix.3",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:client": "tsdown",
+    "test": "node tests/core.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  }
+}
