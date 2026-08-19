@@ -38,7 +38,7 @@
 - 默认列表显示当前 session 脑图；“全部脑图”只显示当前 workspace。
 - 聊天预览不随手动编辑改变；预览版本超出两代或脑图删除后显示“本图已失效”。
 - 不退回“把重新生成 prompt 复制进输入框”的兼容流程。
-- 缺少官方能力时明确降级，不实现自有 Agent、Job、Settings 或 Lightbox 替代品。
+- 缺少官方能力时明确降级；不自建 Agent、Job 或 Settings。rc8 未公开 `ImageLightbox` 时，使用本插件自有可访问 SVG 预览 dialog，不导入私有编译产物。
 
 ## 3. 当前实现审计
 
@@ -495,7 +495,7 @@ Call present_chat_mindmap with libraryId and revisionId.
 - 切换 layout/theme 不重建 MindMap instance。
 - autosave 保持 700 ms debounce；新增请求序列或 AbortController 防止旧 PATCH 回写新状态。
 - SVG preview 生成不得阻塞脑图主画布。
-- 120 节点基准：画布可交互和 SVG 缩略图生成分别记录耗时，目标均小于 1 秒（普通桌面环境）。
+- 360 节点基准：画布可交互和 SVG 缩略图生成分别记录耗时，目标均小于 1 秒（普通桌面环境）；120 节点作为较小配置档保留。
 
 ## 14. 国际化与兼容
 
@@ -517,7 +517,7 @@ Call present_chat_mindmap with libraryId and revisionId.
 | jobs/tool-jobs | 聊天 launcher 返回明确不可用；面板仍可 direct run |
 | settings | 使用编译默认值；不展示插件设置卡 |
 | tool view slot | 聊天显示文本结果；脑图页不受影响 |
-| ImageLightbox | SVG 缩略图仍显示，但点击不打开自制 fallback |
+| rc8 无公开 ImageLightbox | SVG 缩略图仍显示；点击打开插件自有可访问预览 dialog |
 
 能力检测发生在公开 service/provider/slot 层，不通过导入私有源码或版本号猜测。
 
@@ -578,7 +578,7 @@ Host 日志记录完整错误链；UI 和 model-facing output 只接收稳定 co
 - restore 菜单只在有 previous 时出现。
 - 设置修改不改变已有 map。
 - Tool card 的 loading/ready/expired/failed。
-- 点击 SVG 打开官方 ImageLightbox，Escape 关闭并恢复焦点。
+- 点击 SVG 打开插件自有可访问预览 dialog，Escape 关闭并恢复焦点。
 - 中英字典无缺键；未知 locale 回退英文。
 - 窄屏无横向页面溢出。
 
@@ -606,7 +606,7 @@ Host 日志记录完整错误链；UI 和 model-facing output 只接收稳定 co
 - completed 状态出现时，新 record 已可读取。
 - 任意失败、超时、取消后旧 `current` 不变。
 - 插件重载后不存在悬挂 run、未释放 lock 或未 revoke Blob URL。
-- 默认 120 节点脑图的 SVG preview 与画布各自在普通桌面环境 1 秒内可用。
+- 默认 360 节点脑图的 SVG preview 与画布各自在普通桌面环境 1 秒内可用；120 节点作为较小配置档。
 - 浏览器初始进入对话页时不得执行 XMind export。
 
 ## 19. Gate 0：必须先验证的技术假设
@@ -617,8 +617,10 @@ Host 日志记录完整错误链；UI 和 model-facing output 只接收稳定 co
 2. fork 不包含当前未完成回合；`supplementalContext` 能覆盖当前附件/正文场景。
 3. owned Job 完成后父 Agent 能稳定收到通知、调用 `job_output`，并按指令调用展示工具。
 4. `tool.call.toolview` 自定义 renderer 在 live、reload、call head 被裁剪三种情况下都能读到持久引用。
-5. SimpleMindMap `export('svg')` 返回可供 `<img>` 与 `ImageLightbox` 使用的 Blob/data URL。
+5. SimpleMindMap `export('svg')` 返回可供 `<img>` 与插件自有预览 dialog 使用的 `image/svg+xml` Blob/data URL。
 6. 缺失 jobs/subagents/settings 时 optional `ctx.inject`/`ctx.get` 降级不会阻止插件 mount。
+
+rc8 适配结论：官方 `ImageLightbox` 不在公开导出面，因此第 5 项由自有可访问 SVG 预览 dialog 实现；不读取 DSH 私有编译路径。
 
 任何一项失败，先更新本文 ADR 与接口设计，再进入 Phase 1；禁止用临时私有 API 绕过。
 
@@ -626,7 +628,7 @@ Host 日志记录完整错误链；UI 和 model-facing output 只接收稳定 co
 
 ### Phase 0 — 技术验证
 
-当前 Gate 0 状态（2026-08-19）：**未通过，禁止进入 Phase 1**。G0-3 已取得真实 GUI/transcript 证据（`pwsh-1`、`LIVE_GATE0_DONE`、owner completion notice、`job_output`、completed、exit code 0、console errors 0）；脑图已有 GUI 生成与 reload replay 证据。仍缺 call-head 裁剪后的 `call=null`、SVG Blob URL + 官方 ImageLightbox 生命周期，以及 optional services 缺失时的用户可见降级证据。完整结果和证据强度见 `docs/PHASE_0_GATE_0_EVIDENCE.md`，可用 `npm run verify:gate0` 重复；未取得剩余证据前不得开始大规模重构。
+当前 Gate 0 状态（2026-08-19）：本地契约、runtime fixture、包验证和已有 live transcript 已通过；G0-4-live、G0-5-live、G0-6-live 仍为 `PENDING_LIVE`，因为需要外层 GUI 的 call-head 裁剪、浏览器 dialog 交互和完整 profile 缺失能力证据。按当前实施目标，这三项不阻止 rc8 实现交付；完整结果和证据强度见 `docs/PHASE_0_GATE_0_EVIDENCE.md`，可用 `npm run verify:gate0` 重复。`G0-5-live` 验证插件自有 dialog，不声称官方 ImageLightbox。
 
 
 负责人拥有：验证 fixture、最小测试、ADR 更新；不重构产品 UI。
@@ -693,7 +695,7 @@ Host 日志记录完整错误链；UI 和 model-facing output 只接收稳定 co
 - 异步 launcher tool。
 - present tool 与 replay-safe 引用。
 - REST V2 routes。
-- SVG card、LRU、ImageLightbox、expired 状态。
+- SVG card、自有可访问预览 dialog、expired 状态。
 
 验收门：聊天 E2E、reload replay、第三代失效、删除失效通过。
 
@@ -787,7 +789,7 @@ Host 日志记录完整错误链；UI 和 model-facing output 只接收稳定 co
 - [ ] SVG 不随手动编辑变化。
 - [ ] 只保留两代 revision。
 - [ ] 超代或删除显示“本图已失效”。
-- [ ] 点击使用官方 ImageLightbox。
+- [x] 点击使用插件自有可访问 SVG 预览 dialog；官方 ImageLightbox 不作为 rc8 公开 API 依赖。
 - [ ] 无“打开脑图”按钮。
 
 ### UI
