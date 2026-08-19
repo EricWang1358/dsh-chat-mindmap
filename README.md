@@ -56,19 +56,19 @@ If the package is published under a different scope/name, replace the package sp
 
 ### B. End user: GitHub repository
 
-Once the repository URL in `package.json` is replaced with the real public repository, an end user can install the Git package persistently:
+The public repository is ready; an end user can install the Git package persistently:
 
 ```powershell
-dsh plugin --profile web add github:OWNER/dsh-chat-mindmap
+dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap
 ```
 
 For a tagged release:
 
 ```powershell
-dsh plugin --profile web add github:OWNER/dsh-chat-mindmap#v0.1.0
+dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#v0.1.0
 ```
 
-The Git repository must contain built `lib/` artifacts, or a verified `prepare`/build workflow. This checkout currently has no configured public Git remote, so replace `OWNER` only after publishing the repository. For the most reliable user install, publish npm or attach a built tarball instead of requiring every user to compile TypeScript.
+The Git repository must contain built `lib/` artifacts, or a verified `prepare`/build workflow. The project repository is https://github.com/EricWang1358/dsh-chat-mindmap. For the most reliable user install, publish npm or attach a built tarball instead of requiring every user to compile TypeScript.
 
 ### C. End user: built `.tgz` artifact
 

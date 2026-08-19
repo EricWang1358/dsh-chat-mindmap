@@ -26,6 +26,10 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EricWang1358/dsh-chat-mindmap.git"
+  },
   "keywords": [
     "dsh",
     "mindmap",
