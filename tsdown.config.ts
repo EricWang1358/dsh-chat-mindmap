@@ -17,10 +17,14 @@ const clientBundle: UserConfig = {
   platform: 'browser',
   dts: false,
   css: { inject: true, minify: true },
+  minify: true,
   sourcemap: true,
   clean: false,
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+  },
+  alias: {
+    uuid: fileURLToPath(new URL('./node_modules/uuid/dist/esm-browser/index.js', import.meta.url)),
   },
   deps: {
     neverBundle: [...CLIENT_EXTERNALS],

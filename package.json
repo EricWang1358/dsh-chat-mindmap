@@ -61,7 +61,7 @@
     "build": "bash scripts/build.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:client": "tsdown",
-    "test": "node tests/core.test.mjs"
+    "test": "node tests/core.test.mjs && node tests/library.test.mjs"
   },
   "dsh": {
     "bundle": {
