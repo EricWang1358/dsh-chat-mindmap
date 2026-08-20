@@ -29,6 +29,7 @@ export interface MindmapValidationLimits {
     maxNoteLength?: number;
 }
 export declare function buildMindmap(context: string, title?: string, options?: MindmapBuildOptions): MindmapDocument;
+export declare function buildMindmapFromOutline(outline: string, title?: string, options?: MindmapBuildOptions): MindmapDocument;
 export declare function countMindmapNodes(node: MindmapNode): number;
 export declare function mindmapToMarkdown(node: MindmapNode): string;
 export declare function validateMindmapDocument(value: unknown, options?: MindmapValidationLimits): MindmapDocument;

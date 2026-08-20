@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildMindmap, countMindmapNodes, flattenNode, mindmapToMarkdown, validateMindmapDocument } from '../lib/core.js'
+import { buildMindmap, buildMindmapFromOutline, countMindmapNodes, flattenNode, mindmapToMarkdown, validateMindmapDocument } from '../lib/core.js'
 
 const outline = buildMindmap('# Product launch\n## Scope\n### Browser plugin\n## Risks\n### Bundle size')
 assert.equal(outline.title, 'Product launch')
@@ -10,6 +10,9 @@ assert.match(mindmapToMarkdown(outline.root), /^# Product launch/m)
 const transcript = buildMindmap('用户：整理插件需求\n助手：先做 MVP\n用户：需要导出 XMind')
 assert.ok((transcript.root.children?.length ?? 0) >= 2)
 assert.ok(flattenNode(transcript.root).some((node) => node.title.includes('整理插件需求')))
+const strictOutline = buildMindmapFromOutline('# Strict root\n## Strict child')
+assert.equal(strictOutline.root.children?.[0]?.title, 'Strict child')
+assert.throws(() => buildMindmapFromOutline('plain transcript without headings'), /invalid Markdown outline/)
 
 const limited = buildMindmap('# Root\n## A\n### A1\n## B\n### B1\n## C', 'ignored', { contextLimit: 20, maxNodes: 3 })
 assert.ok(limited.source.characters <= 20)

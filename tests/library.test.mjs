@@ -13,6 +13,7 @@ try {
   assert.equal(second.previous?.root.children?.[0]?.title, 'A')
   const edited = await updateMindmap(first.libraryId, { document: buildMindmap('# One\n## Edited'), rotatePrevious: false })
   assert.equal(edited?.previous?.root.children?.[0]?.title, 'A')
+  await assert.rejects(() => saveMindmap({ libraryId: first.libraryId, title: 'Conflict', document: buildMindmap('# Conflict\n## Lost'), expectedUpdatedAt: first.updatedAt }), /mindmap conflict/)
   await archiveMindmap(first.libraryId)
   assert.equal((await listMindmaps()).length, 0)
   assert.equal((await listMindmaps({ archived: true })).length, 1)
