@@ -46,9 +46,9 @@ try {
       getProvider(name) { return name === 'fork' ? {} : undefined },
       async start(name, request) { forkStarts += 1; assert.equal(name, 'fork'); assert.equal(request.parent, fakeParent); assert.deepEqual(request.toolFilter, { allow: [] }); return { id: 'child-1', result: Promise.resolve({ stopReason: 'completed', structured: { title: 'Forked', outline: '# Forked\n## Child' } }), async dispose() {} } },
     },
-    reflect: { get(name) { return ctx[name] } },
     webServer: { register(route) { handler = route.handler; return () => {} } },
     effect(callback) { return callback() },
+    inject(dependencies, callback) { assert.deepEqual(dependencies, ['agents', 'subagents']); return callback(ctx) },
   }
   apply(ctx)
   assert.ok(handler)
@@ -102,6 +102,7 @@ try {
   assert.equal(forkStarts, 1)
   assert.equal(run.status, 200)
   assert.equal(run.payload.value.status, 'completed')
+  assert.equal(run.payload.value.childId, 'child-1')
   assert.equal((await getMindmap(saved.libraryId)).current.title, 'Forked')
 } finally {
   await rm(root, { recursive: true, force: true })
