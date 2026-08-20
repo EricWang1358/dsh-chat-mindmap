@@ -163,6 +163,12 @@ Ask the DSH Agent to call `generate_chat_mindmap` with extracted source text. Pe
 
 Each record stores metadata and bounded visual/generation settings, never the extracted source text by default. `current` and `previous` are rotated only for a new Agent result; UI autosave keeps the previous snapshot stable. Delete removes the index entry and map file. Archive hides an item from the active index without losing it.
 
+## CI and package artifact
+
+GitHub Actions runs the supported Node `22.18.0` verification pipeline on every pull request and push to `main`: typecheck, declaration compilation, client bundle, behavior tests, publishable-package validation, and the browser-bundle budget.
+
+The **Package artifact** workflow runs manually or for tags named `v*`; it uploads the generated `.tgz` plus `pack-result.json` as a 30-day GitHub Actions artifact. It validates the package before producing the artifact and deliberately does not publish to npm or create a GitHub Release without an explicit maintainer release decision.
+
 ## Verification
 
 The current browser bundle is approximately **576 KB** (**168 KB gzip**) after split imports and minification, versus the earlier multi-megabyte `full.js` bundle. CI enforces a **200 KiB gzip** client-bundle budget through `npm run verify:bundle`.
