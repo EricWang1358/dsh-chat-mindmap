@@ -28,7 +28,7 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
   - `GET /@dsh-external/dsh-chat-mindmap/maps`
   - `GET/PATCH/DELETE /@dsh-external/dsh-chat-mindmap/maps/:id`
   - `POST /@dsh-external/dsh-chat-mindmap/maps/:id/archive`
-- **UI:** `conversation.view` slot with a persistent gallery/editor
+- **UI:** `conversation.view` slot with a persistent gallery/editor; the gallery loads only when this panel mounts (never during DSH web startup), deduplicates its in-flight request, and exposes a retry state instead of leaving an indefinite loading label.
 - **Renderer:** [SimpleMindMap](https://github.com/wanglin2/mind-map), split-imported instead of `full.js`
 - **Exports:** JSON, Markdown, XMind, and PNG
 - **Canvas view:** Open a read-only SVG preview in a new browser tab, or enter/exit a browser-native fullscreen canvas with automatic resize. Before every map/revision is handed to SimpleMindMap, the render copy defaults to root plus the first two levels expanded; deeper branches are marked collapsed before the first layout, so switching maps does not pay the cost of a fully expanded render. This is render-only and never overwrites persisted collapse state; explicit `collapsed: false` remains expanded. Every map/revision switch remounts the canvas in loading state before rendering, so the canvas-only spinner reliably appears.
