@@ -32,6 +32,19 @@ export declare function buildMindmap(context: string, title?: string, options?: 
 export declare function buildMindmapFromOutline(outline: string, title?: string, options?: MindmapBuildOptions): MindmapDocument;
 export declare function countMindmapNodes(node: MindmapNode): number;
 export declare function mindmapToMarkdown(node: MindmapNode): string;
+export interface MindmapNodeNoteReference {
+    id: string;
+    path: string;
+    note: string;
+}
+/**
+ * Serializes node notes separately from the Markdown outline so regeneration
+ * can use their detail without interpreting a note as a new mind-map node.
+ */
+export declare function mindmapNodeNotesForPrompt(root: MindmapNode, maxCharacters?: number): {
+    notes: MindmapNodeNoteReference[];
+    omitted: number;
+};
 export declare function validateMindmapDocument(value: unknown, options?: MindmapValidationLimits): MindmapDocument;
 export declare function flattenNode(node: MindmapNode): Array<{
     title: string;

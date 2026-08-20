@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildMindmap, buildMindmapFromOutline, countMindmapNodes, flattenNode, mindmapToMarkdown, validateMindmapDocument } from '../lib/core.js'
+import { buildMindmap, buildMindmapFromOutline, countMindmapNodes, flattenNode, mindmapNodeNotesForPrompt, mindmapToMarkdown, validateMindmapDocument } from '../lib/core.js'
 
 const outline = buildMindmap('# Product launch\n## Scope\n### Browser plugin\n## Risks\n### Bundle size')
 assert.equal(outline.title, 'Product launch')
@@ -33,6 +33,12 @@ assert.ok(mindmapToMarkdown(highCapacity.root).includes('Topic 0-0'))
 const collapsed = buildMindmap('# Root\n## Topic')
 collapsed.root.children[0].collapsed = true
 assert.equal(validateMindmapDocument(collapsed).root.children[0].collapsed, true)
+collapsed.root.note = '根节点背景'
+collapsed.root.children[0].note = '重点：需要给 AI 的细节'
+assert.deepEqual(mindmapNodeNotesForPrompt(collapsed.root), { notes: [
+  { id: collapsed.root.id, path: 'Root', note: '根节点背景' },
+  { id: collapsed.root.children[0].id, path: 'Root > Topic', note: '重点：需要给 AI 的细节' },
+], omitted: 0 })
 
 assert.throws(() => validateMindmapDocument({ version: 1, title: 'bad', root: { id: 'x', title: 'x' } }), /source is required/)
 assert.throws(() => validateMindmapDocument({ version: 1, title: 'bad', source: { kind: 'agent-context', characters: 0, generatedAt: '' }, root: { id: 'x', title: 'x', children: 'bad' } }), /children must be an array/)

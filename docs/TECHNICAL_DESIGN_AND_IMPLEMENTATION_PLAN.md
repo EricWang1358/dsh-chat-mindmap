@@ -1,9 +1,9 @@
 # DSH Chat Mindmap 技术设计与实施计划
 
-> 状态：Ready for implementation  
-> 目标版本：下一次 breaking minor（建议 `0.2.0`）  
-> 基线：`0.1.0`，2026-08-19 本地 `npm test` 与 `npm run typecheck` 均通过  
-> 计划用途：交给其他 Agent 分阶段实施；最终由独立验收 Agent 按本文验收
+> 状态：历史设计基线 / 0.2.x 候选，不是 0.1.1 验收清单
+> 目标版本：下一次 breaking minor（建议 `0.2.0`）
+> 基线：`0.1.0`，2026-08-19 本地 `npm test` 与 `npm run typecheck` 均通过
+> 计划用途：记录曾提议的架构方向；0.1.1 继续采用公开 rc8 API、panel-only fork 与 `current + previous` 两代模型，节点级 Agent、patch workflow、统一历史和 revision retention 迁移留到 0.2.x
 
 ## 1. 结论摘要
 

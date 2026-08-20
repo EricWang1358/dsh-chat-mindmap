@@ -31,12 +31,13 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
 - **UI:** `conversation.view` slot with a persistent gallery/editor; the gallery loads only when this panel mounts (never during DSH web startup), deduplicates its in-flight request, and exposes a retry state instead of leaving an indefinite loading label.
 - **Renderer:** [SimpleMindMap](https://github.com/wanglin2/mind-map), split-imported instead of `full.js`
 - **Exports:** JSON, Markdown, XMind, and PNG
-- **Canvas view:** Open a read-only SVG preview in a new browser tab, or enter/exit a browser-native fullscreen canvas with automatic resize. Before every map/revision is handed to SimpleMindMap, the render copy always keeps only root plus the first two levels expanded; deeper branches are marked collapsed before the first layout even if a prior interactive session persisted them expanded. This is render-only and never overwrites persisted state. The default cyan theme follows the DSH shell’s light/dark contrast, while explicitly selected map themes remain unchanged. Every map/revision switch remounts the canvas in loading state before rendering, so the canvas-only spinner reliably appears.
+- **Canvas view:** Open a read-only SVG preview in a new browser tab, or enter/exit a browser-native fullscreen canvas with automatic resize. Fullscreen remains an editor: double-click a node for SimpleMindMap’s inline text editor, or select it to use the visible fullscreen title/notes form. The inline `contenteditable` is explicitly mounted inside the element that enters fullscreen, so it is not hidden by the browser fullscreen top-layer boundary. Before every map/revision is handed to SimpleMindMap, the render copy always keeps only root plus the first two levels expanded; deeper branches are marked collapsed before the first layout even if a prior interactive session persisted them expanded. This is render-only and never overwrites persisted state. The default cyan theme follows the DSH shell’s light/dark contrast, while explicitly selected map themes remain unchanged. Every map/revision switch remounts the canvas in loading state before rendering, so the canvas-only spinner reliably appears.
 - **Workspace shell:** A single compact Header contains navigation, undo/redo, Inspector, `···`, and fullscreen—there is no duplicate canvas toolbar. The 228px searchable library uses the DSH semantic layer, border, label, and interactive tokens (matching `dsh-context`), with an accent-line selection rather than a high-weight card. The canvas fills the remaining height; its light zoom pill is absolutely positioned at the lower-right, while status is an overlay and never reserves a bottom row. Low-frequency actions and exports live in `···`; map layout and theme live in the Inspector.
 - **Panel regeneration:** `重新生成` starts an official one-shot `fork` child from the live session, exposes only panel-local running/completed/failed/cancelled status, and safely preserves manual edits on conflict. It intentionally does not create a DSH Job, notify the main chat, or add a chat SVG card.
-- **Chat preview:** `present_chat_mindmap` returns a durable `libraryId` + content-addressed `revisionId`; the client recreates an `image/svg+xml` Blob preview, shows it in an accessible dialog, and revokes its object URL on unmount. DSH `0.1.0-rc.8` does not publicly export `ImageLightbox`, so this plugin intentionally uses its own dialog and does not claim the private component.
+- **Chat preview:** `present_chat_mindmap` returns a durable `libraryId` + content-addressed `revisionId`. The Host retains only the documented `current` plus one `previous` version; previews outside those two immutable documents expire explicitly. The client recreates an `image/svg+xml` Blob preview, shows it in an accessible dialog, and revokes its object URL on unmount. DSH `0.1.0-rc.8` does not publicly export `ImageLightbox`, so this plugin intentionally uses its own dialog and does not claim the private component.
+- **New-map cancellation:** the initial draft generation is cancellable and never writes a library record. Once the explicit Host save begins, the UI labels it as a non-cancellable commit rather than falsely claiming that a persisted map was discarded.
 - **Source boundary:** Agent reads attachments and supplies extracted text plus source metadata; the plugin does not retain source text by default
-- **Regeneration:** the UI sends the active map/version and optional instruction to the plugin Host; the Host starts a bounded one-shot fork child, validates its strict Markdown outline, then atomically rotates `current` into `previous` only if the map was not manually edited during the run.
+- **Regeneration:** the UI sends the active map/version and optional overall redraw instruction to the plugin Host. The Host supplies the outline plus every bounded node note as structured JSON reference data, and passes the overall redraw instruction separately as `<panel-note>`; it starts a bounded one-shot fork child, validates its strict Markdown outline, then atomically rotates `current` into `previous` only if the map was not manually edited during the run.
 
 ## Project overview example
 
@@ -53,7 +54,7 @@ There are three different installation modes. **Do not use `dev_inject_plugin` f
 After this package is published under its final npm name, an end user runs this from any directory:
 
 ```powershell
-dsh plugin --profile web add @dsh-external/dsh-chat-mindmap@0.1.0
+dsh plugin --profile web add @dsh-external/dsh-chat-mindmap@0.1.1
 ```
 
 `dsh plugin` forwards to pnpm, writes the dependency into `~/.dsh/profiles/web/package.json`, adds the package to `dsh.profile.bundles`, and makes it survive restart. Then restart the DSH Web profile:
@@ -75,7 +76,7 @@ dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap
 For a tagged release:
 
 ```powershell
-dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#v0.1.0
+dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#v0.1.1
 ```
 
 The Git repository must contain built `lib/` artifacts, or a verified `prepare`/build workflow. The project repository is https://github.com/EricWang1358/dsh-chat-mindmap. For the most reliable user install, publish npm or attach a built tarball instead of requiring every user to compile TypeScript.
@@ -93,8 +94,8 @@ npm pack
 Then copy the generated `.tgz` to the target machine and install it persistently. On Windows, use a `file:` URL with forward slashes or an absolute tarball path:
 
 ```powershell
-dsh plugin --profile web add file:C:/path/to/dsh-external-dsh-chat-mindmap-0.1.0.tgz
-# equivalent: dsh plugin --profile web add C:/path/to/dsh-external-dsh-chat-mindmap-0.1.0.tgz
+dsh plugin --profile web add file:C:/path/to/dsh-external-dsh-chat-mindmap-0.1.1.tgz
+# equivalent: dsh plugin --profile web add C:/path/to/dsh-external-dsh-chat-mindmap-0.1.1.tgz
 ```
 
 Restart DSH after installation. The `health` URL is an API endpoint, not a standalone app page; if the plugin is not installed/persisted, DSH's SPA fallback will return the conversation shell HTML instead of JSON. Verify the named route rather than opening it as a browser page:
@@ -106,7 +107,7 @@ Invoke-WebRequest http://127.0.0.1:3080/@dsh-external/dsh-chat-mindmap/health
 Expected content:
 
 ```json
-{"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":2}
+{"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":4}
 ```
 
 ### D. Local developer checkout
@@ -173,7 +174,9 @@ The **Package artifact** workflow runs manually or for tags named `v*`; it uploa
 
 ## Verification
 
-The current browser bundle is approximately **576 KB** (**168 KB gzip**) after split imports and minification, versus the earlier multi-megabyte `full.js` bundle. CI enforces a **200 KiB gzip** client-bundle budget through `npm run verify:bundle`.
+The current browser bundle is approximately **588 KB** (**171 KB gzip**) after split imports and minification, versus the earlier multi-megabyte `full.js` bundle. CI enforces a **200 KiB gzip** client-bundle budget through `npm run verify:bundle`.
+
+The automated source, host, package, and bundle checks pass. Browser-only interaction acceptance remains explicitly tracked in the project overview and Gate 0 evidence; do not treat those pending live checks as completed GUI E2E coverage.
 
 The GUI verification path has been exercised:
 
