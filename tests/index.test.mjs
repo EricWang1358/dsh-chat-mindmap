@@ -39,12 +39,13 @@ try {
   let handler
   const fakeParent = { id: 'session-active' }
   let forkStarts = 0
+  let forkPrompt = ''
   const ctx = {
     tools: { register() {} },
     agents: { get(id) { return id === fakeParent.id ? fakeParent : undefined } },
     subagents: {
       getProvider(name) { return name === 'fork' ? {} : undefined },
-      async start(name, request) { forkStarts += 1; assert.equal(name, 'fork'); assert.equal(request.parent, fakeParent); assert.deepEqual(request.toolFilter, { allow: [] }); return { id: 'child-1', result: Promise.resolve({ stopReason: 'completed', structured: { title: 'Forked', outline: '# Forked\n## Child' } }), async dispose() {} } },
+      async start(name, request) { forkStarts += 1; assert.equal(name, 'fork'); assert.equal(request.parent, fakeParent); assert.deepEqual(request.toolFilter, { allow: [] }); forkPrompt = request.prompt[0].text; return { id: 'child-1', result: Promise.resolve({ stopReason: 'completed', structured: { title: 'Forked', outline: '# Forked\n## Child' } }), async dispose() {} } },
     },
     webServer: { register(route) { handler = route.handler; return () => {} } },
     effect(callback) { return callback() },
@@ -94,12 +95,16 @@ try {
   const expiredPreview = await request('', `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/rev-000000000000000000000000`, 'GET')
   assert.equal(expiredPreview.status, 410)
 
-  const regeneration = await request(JSON.stringify({ sessionId: fakeParent.id, expectedUpdatedAt: saved.updatedAt }), `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/regenerate`)
+  const note = '保留所有原始分支，并优先展开性能验收项。'
+  const regeneration = await request(JSON.stringify({ sessionId: fakeParent.id, expectedUpdatedAt: saved.updatedAt, instruction: note }), `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/regenerate`)
   assert.equal(regeneration.status, 202)
   assert.equal(regeneration.payload.value.status, 'running')
   await new Promise((resolve) => setTimeout(resolve, 25))
   const run = await request('', `/@dsh-external/dsh-chat-mindmap/panel-runs/${regeneration.payload.value.runId}`, 'GET')
   assert.equal(forkStarts, 1)
+  assert.equal(forkPrompt, `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。\n\n当前标题：Patch\n当前脑图 Markdown：\n# Patch\n## Child\n\n最多节点：360\n\n<panel-note>\n${note}\n</panel-note>\n\n如果没有 panel-note，则保持原主题和层级信息，必要时改善结构。`)
+  assert.equal(run.payload.value.noteLength, [...note].length)
+  assert.match(run.payload.value.detail, /重新生成完成：2 个节点/)
   assert.equal(run.status, 200)
   assert.equal(run.payload.value.status, 'completed')
   assert.equal(run.payload.value.childId, 'child-1')

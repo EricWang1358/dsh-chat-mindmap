@@ -60,6 +60,7 @@ interface PanelRunView {
   libraryId: string
   status: 'running' | 'completed' | 'failed' | 'cancelled'
   detail: string
+  noteLength?: number
   childId?: string
   revisionId?: string
 }
@@ -334,9 +335,14 @@ function asOutline(value: unknown): { title: string; outline: string } {
   return { title: value.title.trim(), outline: value.outline.trim() }
 }
 
-function regenerationPrompt(record: Awaited<ReturnType<typeof getMindmap>>, instruction?: string): string {
+function regenerationPrompt(record: Awaited<ReturnType<typeof getMindmap>>, instruction?: string): { text: string; noteLength: number } {
   if (!record) throw new Error('mindmap not found')
-  return `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。\n\n当前标题：${record.title}\n当前脑图 Markdown：\n${mindmapToMarkdown(record.current.root)}\n\n最多节点：${record.config.maxNodes}\n附加要求：${instruction?.trim() || record.config.instruction || '保持原主题和层级信息，必要时改善结构。'}`
+  const note = instruction?.trim() || record.config.instruction?.trim() || ''
+  const noteSection = note ? `\n\n<panel-note>\n${note}\n</panel-note>` : ''
+  return {
+    text: `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。\n\n当前标题：${record.title}\n当前脑图 Markdown：\n${mindmapToMarkdown(record.current.root)}\n\n最多节点：${record.config.maxNodes}${noteSection}\n\n如果没有 panel-note，则保持原主题和层级信息，必要时改善结构。`,
+    noteLength: note.length,
+  }
 }
 
 function startPanelRegeneration(services: PanelServices | undefined, libraryId: string, input: RegenerateInput, panelRuns: Map<string, PanelRun>, activeByLibrary: Map<string, string>): PanelRunView {
@@ -354,10 +360,12 @@ function startPanelRegeneration(services: PanelServices | undefined, libraryId: 
     try {
       const record = await getMindmap(libraryId)
       if (!record) throw new Error('mindmap not found')
-      const run = await runtime.start('fork', { label: `重新构建脑图：${record.title}`, prompt: [{ type: 'text', text: regenerationPrompt(record, input.instruction) }], parent, signal: controller.signal, outputSchema: OUTLINE_SCHEMA, maxDepth: 1, toolFilter: { allow: [] }, persona: '只把给定脑图内容整理为严格 Markdown 层级大纲。不得调用任何工具、技能、子代理或外部服务；不要解释过程。' })
+      const prompt = regenerationPrompt(record, input.instruction)
+      panelRun.noteLength = prompt.noteLength || undefined
+      const run = await runtime.start('fork', { label: `重新构建脑图：${record.title}`, prompt: [{ type: 'text', text: prompt.text }], parent, signal: controller.signal, outputSchema: OUTLINE_SCHEMA, maxDepth: 1, toolFilter: { allow: [] }, persona: '只把给定脑图内容整理为严格 Markdown 层级大纲。不得调用任何工具、技能、子代理或外部服务；不要解释过程。' })
       panelRun.run = run
       panelRun.childId = run.id
-      panelRun.detail = `Fork 子代理已启动：${run.id}`
+      panelRun.detail = prompt.noteLength ? `Fork 子代理已启动：${run.id}（已附带 ${prompt.noteLength} 字备注）` : `Fork 子代理已启动：${run.id}`
       const result = await run.result
       if (controller.signal.aborted) { panelRun.status = 'cancelled'; panelRun.detail = '已取消重新生成'; return }
       if (result.stopReason !== 'completed') throw new Error(result.diagnostic || '子代理未完成重新生成')
@@ -464,7 +472,7 @@ export function apply(ctx: PluginContext): void {
         if (panelRunMatch && req.method === 'GET') {
           const run = panelRuns.get(decodeId(panelRunMatch[1]!))
           if (!run) { writeJson(res, 404, { ok: false, error: 'panel run not found' }); return }
-          writeJson(res, 200, { ok: true, value: { runId: run.runId, libraryId: run.libraryId, status: run.status, detail: run.detail, ...(run.childId ? { childId: run.childId } : {}), ...(run.revisionId ? { revisionId: run.revisionId } : {}) } satisfies PanelRunView })
+          writeJson(res, 200, { ok: true, value: { runId: run.runId, libraryId: run.libraryId, status: run.status, detail: run.detail, ...(run.noteLength ? { noteLength: run.noteLength } : {}), ...(run.childId ? { childId: run.childId } : {}), ...(run.revisionId ? { revisionId: run.revisionId } : {}) } satisfies PanelRunView })
           return
         }
         if (panelRunMatch && req.method === 'DELETE') {
