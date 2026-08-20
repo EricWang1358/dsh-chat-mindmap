@@ -50,6 +50,9 @@ jobs:
       - name: Verify publishable package
         run: npm run verify:package
 
+      - name: Enforce browser bundle budget
+        run: npm run verify:bundle
+
       # Gate 0 also checks the machine-installed DSH distribution and its
       # fork/tool-jobs contracts, so it remains a required local DSH check.
       # A clean GitHub runner intentionally does not fabricate that host graph.

@@ -40,8 +40,8 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0-rc <5",
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc <2",
-    "@deepseek-ai/dsh-client-ui-tool": ">=0.1.0-rc <2",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-client-ui-tool": ">=0.1.0-rc <2",
     "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc <2",
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc <2",
     "react": ">=18 <20",
@@ -51,11 +51,11 @@
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-brand": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-code-runtime": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-client-ui-tool": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-code-runtime": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-jobs": "^0.1.0-rc.8",
@@ -75,7 +75,8 @@
     "react-dom": "^18.3.1",
     "simple-mind-map": "^0.14.0-fix.3",
     "tsdown": "^0.22.14",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "unrun": "^0.1.0"
   },
   "scripts": {
     "build": "bash scripts/build.sh",
@@ -83,6 +84,7 @@
     "build:client": "tsdown",
     "test": "node tests/core.test.mjs && node tests/library.test.mjs && node tests/index.test.mjs",
     "verify:package": "node scripts/verify-package.mjs",
+    "verify:bundle": "node scripts/verify-bundle.mjs",
     "verify:gate0": "node scripts/gate0.mjs"
   },
   "dsh": {
