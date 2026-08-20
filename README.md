@@ -32,7 +32,7 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
 - **Renderer:** [SimpleMindMap](https://github.com/wanglin2/mind-map), split-imported instead of `full.js`
 - **Exports:** JSON, Markdown, XMind, and PNG
 - **Canvas view:** Open a read-only SVG preview in a new browser tab, or enter/exit a browser-native fullscreen canvas with automatic resize. Fullscreen remains an editor: double-click a node for SimpleMindMap’s inline text editor, or select it to use the visible fullscreen title/notes form. The inline `contenteditable` is explicitly mounted inside the element that enters fullscreen, so it is not hidden by the browser fullscreen top-layer boundary. Before every map/revision is handed to SimpleMindMap, the render copy always keeps only root plus the first two levels expanded; deeper branches are marked collapsed before the first layout even if a prior interactive session persisted them expanded. This is render-only and never overwrites persisted state. The default cyan theme follows the DSH shell’s light/dark contrast, while explicitly selected map themes remain unchanged. Every map/revision switch remounts the canvas in loading state before rendering, so the canvas-only spinner reliably appears.
-- **Workspace shell:** A single compact Header contains navigation, undo/redo, Inspector, `···`, and fullscreen—there is no duplicate canvas toolbar. The 228px searchable library uses the DSH semantic layer, border, label, and interactive tokens (matching `dsh-context`), with an accent-line selection rather than a high-weight card. The canvas fills the remaining height; its light zoom pill is absolutely positioned at the lower-right, while status is an overlay and never reserves a bottom row. Low-frequency actions and exports live in `···`; map layout and theme live in the Inspector.
+- **Workspace shell:** A single compact Header contains sidebar collapse/expand, navigation, undo/redo, Inspector, `···`, and fullscreen—there is no duplicate canvas toolbar. The 228px searchable library becomes a narrow rail in constrained panel widths and can be fully collapsed so the canvas receives the released width. The workspace observes its actual host viewport width/height instead of assuming the conversation page height. The canvas fills the remaining bounded flex height; its light zoom pill is absolutely positioned at the lower-right, while status is an overlay and never reserves a bottom row. Low-frequency actions and exports live in `···`; map layout and theme live in the Inspector.
 - **Panel regeneration:** `重新生成` starts an official one-shot `fork` child from the live session, exposes only panel-local running/completed/failed/cancelled status, and safely preserves manual edits on conflict. It intentionally does not create a DSH Job, notify the main chat, or add a chat SVG card.
 - **Chat preview:** `present_chat_mindmap` returns a durable `libraryId` + content-addressed `revisionId`. The Host retains only the documented `current` plus one `previous` version; previews outside those two immutable documents expire explicitly. The client recreates an `image/svg+xml` Blob preview, shows it in an accessible dialog, and revokes its object URL on unmount. DSH `0.1.0-rc.8` does not publicly export `ImageLightbox`, so this plugin intentionally uses its own dialog and does not claim the private component.
 - **New-map cancellation:** the initial draft generation is cancellable and never writes a library record. Once the explicit Host save begins, the UI labels it as a non-cancellable commit rather than falsely claiming that a persisted map was discarded.
@@ -49,9 +49,9 @@ The diagram below is a real project-outline example. Its editable Markdown sourc
 
 There are three different installation modes. **Do not use `dev_inject_plugin` for a normal installation**: it is a temporary live injection and is intentionally lost after DSH restarts.
 
-### A. End user: published npm package (recommended once released)
+### A. End user: npm package (future primary path)
 
-After this package is published under its final npm name, an end user runs this from any directory:
+`@dsh-external/dsh-chat-mindmap` npm package is not currently published. Once the maintainer publishes and verifies the package on npm, this becomes the simplest install path:
 
 ```powershell
 dsh plugin --profile web add @dsh-external/dsh-chat-mindmap@0.1.1
@@ -65,15 +65,15 @@ dsh web
 
 If the package is published under a different scope/name, replace the package spec in the command. The package must be published with the built `lib/` directory; users should not need the source checkout or DSH source tree.
 
-### B. End user: GitHub repository
+### B. End user: GitHub Release tarball (current recommended path)
 
-The public repository is ready; an end user can install the Git package persistently:
+For the currently published `v0.1.1`, download the release asset from [GitHub Release v0.1.1](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.1), then install it persistently:
 
 ```powershell
-dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap
+dsh plugin --profile web add file:C:/path/to/dsh-external-dsh-chat-mindmap-0.1.1.tgz
 ```
 
-For a tagged release:
+### C. End user: GitHub repository
 
 ```powershell
 dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#v0.1.1
@@ -81,7 +81,7 @@ dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#v0.1.1
 
 The Git repository must contain built `lib/` artifacts, or a verified `prepare`/build workflow. The project repository is https://github.com/EricWang1358/dsh-chat-mindmap. For the most reliable user install, publish npm or attach a built tarball instead of requiring every user to compile TypeScript.
 
-### C. End user: built `.tgz` artifact
+### D. End user: built `.tgz` artifact
 
 A maintainer builds and packs the plugin:
 
@@ -110,7 +110,7 @@ Expected content:
 {"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":4}
 ```
 
-### D. Local developer checkout
+### E. Local developer checkout
 
 The build uses the DSH checkout's TypeScript compiler and produces host and browser bundles:
 

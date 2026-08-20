@@ -13,6 +13,8 @@ class FakeRequest extends EventEmitter {
     super()
     this.body = body
     this.url = url
+    this.headers = {}
+    this.socket = { remoteAddress: '127.0.0.1' }
     this.method = method
   }
   setEncoding() {}

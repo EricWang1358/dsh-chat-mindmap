@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-chat-mindmap",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Generate editable mind maps from agent-provided chat context inside DSH.",
   "type": "module",
   "main": "./lib/index.js",
@@ -28,7 +28,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/EricWang1358/dsh-chat-mindmap.git"
+    "url": "git+https://github.com/EricWang1358/dsh-chat-mindmap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EricWang1358/dsh-chat-mindmap/issues"
+  },
+  "engines": {
+    "node": ">=22.18.0 <23"
   },
   "keywords": [
     "dsh",
@@ -82,13 +88,14 @@
     "unrun": "^0.3.1"
   },
   "scripts": {
-    "build": "bash scripts/build.sh",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:client": "tsdown",
     "test": "node tests/core.test.mjs && node tests/library.test.mjs && node tests/index.test.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:bundle": "node scripts/verify-bundle.mjs",
-    "verify:gate0": "node scripts/gate0.mjs"
+    "verify:gate0": "node scripts/gate0.mjs",
+    "verify:sast": "node scripts/verify-sast.mjs"
   },
   "dsh": {
     "bundle": {
@@ -97,7 +104,9 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-slots"
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-tool"
       ],
       "platform": "web"
     }

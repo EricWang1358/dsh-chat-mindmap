@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentRegistry } from '@deepseek-ai/dsh-agent'
 import type { SubagentRun, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
@@ -243,12 +244,13 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
     let body = ''
     let bytes = 0
     let settled = false
+    const timer = setTimeout(() => fail(new InputError('request body timeout', 408)), 15_000)
     const fail = (error: Error): void => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       reject(error)
     }
-    req.setEncoding('utf8')
     req.on('data', (chunk: string) => {
       if (settled) return
       bytes += Buffer.byteLength(chunk, 'utf8')
@@ -262,16 +264,33 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
       if (settled) return
       try {
         const parsed = body ? JSON.parse(body) : {}
-        settled = true
-        resolve(parsed)
+      settled = true
+      clearTimeout(timer)
+      resolve(parsed)
       } catch {
         fail(new InputError('invalid JSON'))
       }
     })
-    req.on('error', (error) => fail(error instanceof Error ? error : new Error(String(error))))
+     req.on('error', (error) => { clearTimeout(timer); fail(error instanceof Error ? error : new Error(String(error))) })
   })
 }
 
+function requestSecurityError(req: IncomingMessage): InputError | null {
+  const headers = req.headers ?? {}
+  const site = headers['sec-fetch-site']
+  if (site === 'cross-site' || site === 'none') return new InputError('cross-site request rejected', 403)
+  const origin = headers.origin
+  if (origin) {
+    if (origin === 'null') return new InputError('opaque origin rejected', 403)
+    let parsed: URL
+    try { parsed = new URL(origin) } catch { return new InputError('invalid request origin', 403) }
+    const host = headers.host
+    if (!host || parsed.host !== host || !['http:', 'https:'].includes(parsed.protocol)) return new InputError('origin is not the DSH web origin', 403)
+  }
+  const remote = req.socket?.remoteAddress
+  if (remote && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) return new InputError('non-loopback request rejected', 403)
+  return null
+}
 function writeJson(res: ServerResponse, status: number, value: unknown): void {
   if (res.writableEnded) return
   const body = JSON.stringify(value)
@@ -358,7 +377,7 @@ function startPanelRegeneration(services: PanelServices | undefined, libraryId: 
   const parent = services?.agents.get(SessionId(input.sessionId))
   const runtime = services?.subagents
   if (!parent || !runtime?.getProvider('fork')) throw new InputError('当前会话不支持 fork 子代理重新生成', 503)
-  const runId = `panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  const runId = `panel-${Date.now().toString(36)}-${randomUUID().replaceAll('-', '').slice(0, 8)}`
   const controller = new AbortController()
   const panelRun: PanelRun = { runId, libraryId, status: 'running', detail: '正在由 fork 子代理整理脑图大纲…', controller }
   panelRuns.set(runId, panelRun)
@@ -461,6 +480,8 @@ export function apply(ctx: PluginContext): void {
     kind: 'prefix',
     path: '/@dsh-external/dsh-chat-mindmap',
     handler: async (req, res) => {
+      const securityError = requestSecurityError(req)
+      if (securityError) { writeJson(res, securityError.status, { ok: false, error: securityError.message }); return }
       try {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1')
         if (req.method === 'GET' && url.pathname.endsWith('/health')) {
