@@ -30,6 +30,12 @@ assert.match(clientSource, /\/maps\/\$\{encodeURIComponent\(record\.libraryId\)\
 assert.match(clientSource, /Fork 子代理运行中/)
 assert.doesNotMatch(clientSource, /inputActions\.setDraft/)
 assert.match(clientSource, /cancelRegenerate/)
+const hostSource = await readFile(join(root, 'src', 'index.ts'), 'utf8')
+assert.match(hostSource, /injectOptional\?\.\(\['agents', 'subagents'\]/)
+assert.match(hostSource, /SubagentRun, SubagentRuntime/)
+assert.match(hostSource, /runtime\.start\('fork'/)
+assert.match(hostSource, /childId = run\.id/)
+assert.doesNotMatch(hostSource, /reflect\?\.get/)
 
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const useShell = process.platform === 'win32'

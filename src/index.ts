@@ -1,9 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { AgentRegistry } from '@deepseek-ai/dsh-agent'
+import type { SubagentRun, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
+import { defineTool, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { buildMindmap, buildMindmapFromOutline, countMindmapNodes, mindmapToMarkdown, validateMindmapDocument, type MindmapBuildOptions, type MindmapDocument } from './core.js'
 import { revisionIdOf } from './revisions.js'
 import {
@@ -50,14 +50,17 @@ interface RegenerateInput {
   instruction?: string
 }
 
-type SubagentRuntime = { getProvider(name: string): unknown; start(name: string, request: { label: string; prompt: Array<{ type: 'text'; text: string }>; parent: Agent; signal: AbortSignal; outputSchema: Record<string, unknown>; maxDepth: number; toolFilter: { allow: string[] }; persona: string }): Promise<SubagentRun> }
-type AgentRegistry = { get(id: string): Agent | undefined }
+interface PanelServices {
+  agents: AgentRegistry
+  subagents: SubagentRuntime
+}
 
 interface PanelRunView {
   runId: string
   libraryId: string
   status: 'running' | 'completed' | 'failed' | 'cancelled'
   detail: string
+  childId?: string
   revisionId?: string
 }
 
@@ -321,7 +324,7 @@ async function generateResult(args: GenerateInput, sessionId?: string): Promise<
 }
 
 const CAPABILITY_NOTE = '面板重新生成会在可用时直接使用 fork 子代理，并仅在脑图面板显示状态；它不会创建 DSH Job、写入主聊天或追加聊天 SVG 卡。'
-const OUTLINE_SCHEMA = { type: 'object', additionalProperties: false, required: ['title', 'outline'], properties: { title: { type: 'string' }, outline: { type: 'string' } } }
+const OUTLINE_SCHEMA: ObjectJsonSchema = { type: 'object', additionalProperties: false, required: ['title', 'outline'], properties: { title: { type: 'string' }, outline: { type: 'string' } } }
 const PANEL_RUN_TIMEOUT_MS = 180_000
 
 type PanelRun = PanelRunView & { controller: AbortController; run?: SubagentRun }
@@ -336,13 +339,10 @@ function regenerationPrompt(record: Awaited<ReturnType<typeof getMindmap>>, inst
   return `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。\n\n当前标题：${record.title}\n当前脑图 Markdown：\n${mindmapToMarkdown(record.current.root)}\n\n最多节点：${record.config.maxNodes}\n附加要求：${instruction?.trim() || record.config.instruction || '保持原主题和层级信息，必要时改善结构。'}`
 }
 
-function optionalService<T>(ctx: PluginContext, name: string): T | undefined { return (ctx as PluginContext & { reflect?: { get(name: string, strict?: boolean): T | undefined } }).reflect?.get(name, true) }
-
-function startPanelRegeneration(ctx: PluginContext, libraryId: string, input: RegenerateInput, panelRuns: Map<string, PanelRun>, activeByLibrary: Map<string, string>): PanelRunView {
+function startPanelRegeneration(services: PanelServices | undefined, libraryId: string, input: RegenerateInput, panelRuns: Map<string, PanelRun>, activeByLibrary: Map<string, string>): PanelRunView {
   if (activeByLibrary.has(libraryId)) throw new InputError('该脑图正在重新生成，请等待或取消当前任务', 409)
-  const agents = optionalService<AgentRegistry>(ctx, 'agents')
-  const runtime = optionalService<SubagentRuntime>(ctx, 'subagents')
-  const parent = agents?.get(input.sessionId)
+  const parent = services?.agents.get(SessionId(input.sessionId))
+  const runtime = services?.subagents
   if (!parent || !runtime?.getProvider('fork')) throw new InputError('当前会话不支持 fork 子代理重新生成', 503)
   const runId = `panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   const controller = new AbortController()
@@ -356,6 +356,8 @@ function startPanelRegeneration(ctx: PluginContext, libraryId: string, input: Re
       if (!record) throw new Error('mindmap not found')
       const run = await runtime.start('fork', { label: `重新构建脑图：${record.title}`, prompt: [{ type: 'text', text: regenerationPrompt(record, input.instruction) }], parent, signal: controller.signal, outputSchema: OUTLINE_SCHEMA, maxDepth: 1, toolFilter: { allow: [] }, persona: '只把给定脑图内容整理为严格 Markdown 层级大纲。不得调用任何工具、技能、子代理或外部服务；不要解释过程。' })
       panelRun.run = run
+      panelRun.childId = run.id
+      panelRun.detail = `Fork 子代理已启动：${run.id}`
       const result = await run.result
       if (controller.signal.aborted) { panelRun.status = 'cancelled'; panelRun.detail = '已取消重新生成'; return }
       if (result.stopReason !== 'completed') throw new Error(result.diagnostic || '子代理未完成重新生成')
@@ -394,6 +396,13 @@ function presentContent(value: { libraryId?: string; revisionId?: string; title?
 export function apply(ctx: PluginContext): void {
   const panelRuns = new Map<string, PanelRun>()
   const activeByLibrary = new Map<string, string>()
+  let panelServices: PanelServices | undefined
+  const injectOptional = (ctx as PluginContext & { inject?: PluginContext['inject'] }).inject
+  injectOptional?.(['agents', 'subagents'], (serviceCtx) => {
+    const services: PanelServices = { agents: serviceCtx.agents, subagents: serviceCtx.subagents }
+    panelServices = services
+    serviceCtx.effect(() => () => { if (panelServices === services) panelServices = undefined }, 'chat-mindmap: panel fork capability')
+  })
   const generate = defineTool({
     name: 'generate_chat_mindmap',
     description: 'Convert agent-provided chat context into a structured editable mind map. Pass the relevant conversation text or a Markdown outline; do not pass secrets that should not be summarized.',
@@ -437,10 +446,8 @@ export function apply(ctx: PluginContext): void {
       try {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1')
         if (req.method === 'GET' && url.pathname.endsWith('/health')) {
-          const agents = optionalService<AgentRegistry>(ctx, 'agents')
-          const subagents = optionalService<SubagentRuntime>(ctx, 'subagents')
-          const fork = Boolean(subagents?.getProvider('fork'))
-          writeJson(res, 200, { ok: true, plugin: name, version: 3, capabilities: { jobs: false, subagents: fork, panelForkRegeneration: Boolean(agents && fork), settings: false, localGeneration: true, svgPreview: true }, capabilityNote: CAPABILITY_NOTE })
+          const fork = Boolean(panelServices?.subagents.getProvider('fork'))
+          writeJson(res, 200, { ok: true, plugin: name, version: 4, capabilities: { jobs: false, subagents: fork, panelForkRegeneration: Boolean(panelServices && fork), settings: false, localGeneration: true, svgPreview: true }, capabilityNote: CAPABILITY_NOTE })
           return
         }
         const regenerateMatch = /\/maps\/([^/]+)\/regenerate$/.exec(url.pathname)
@@ -448,14 +455,14 @@ export function apply(ctx: PluginContext): void {
           const input = parseRegenerateInput(await readJsonBody(req))
           const libraryId = decodeId(regenerateMatch[1]!)
           if (!await getMindmap(libraryId)) { writeJson(res, 404, { ok: false, error: 'mindmap not found' }); return }
-          writeJson(res, 202, { ok: true, value: startPanelRegeneration(ctx, libraryId, input, panelRuns, activeByLibrary) })
+          writeJson(res, 202, { ok: true, value: startPanelRegeneration(panelServices, libraryId, input, panelRuns, activeByLibrary) })
           return
         }
         const panelRunMatch = /\/panel-runs\/([^/]+)$/.exec(url.pathname)
         if (panelRunMatch && req.method === 'GET') {
           const run = panelRuns.get(decodeId(panelRunMatch[1]!))
           if (!run) { writeJson(res, 404, { ok: false, error: 'panel run not found' }); return }
-          writeJson(res, 200, { ok: true, value: { runId: run.runId, libraryId: run.libraryId, status: run.status, detail: run.detail, ...(run.revisionId ? { revisionId: run.revisionId } : {}) } satisfies PanelRunView })
+          writeJson(res, 200, { ok: true, value: { runId: run.runId, libraryId: run.libraryId, status: run.status, detail: run.detail, ...(run.childId ? { childId: run.childId } : {}), ...(run.revisionId ? { revisionId: run.revisionId } : {}) } satisfies PanelRunView })
           return
         }
         if (panelRunMatch && req.method === 'DELETE') {
