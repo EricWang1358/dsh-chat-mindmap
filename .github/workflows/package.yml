@@ -1,0 +1,49 @@
+name: Package artifact
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build publishable package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.18.0'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build package entries
+        run: |
+          npx tsc -p tsconfig.json
+          npx tsdown
+
+      - name: Validate package and bundle budget
+        run: |
+          npm run verify:package
+          npm run verify:bundle
+
+      - name: Create npm tarball
+        run: npm pack --json > pack-result.json
+
+      - name: Upload publishable tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-chat-mindmap-${{ github.sha }}
+          path: |
+            *.tgz
+            pack-result.json
+          if-no-files-found: error
+          retention-days: 30
