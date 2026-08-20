@@ -6,9 +6,16 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+const clientSource = await readFile(join(root, 'src', 'client', 'index.ts'), 'utf8')
 assert.ok(packageJson.exports['.'])
 assert.ok(packageJson.exports['./client'])
 assert.ok(packageJson.files.includes('lib'))
+assert.match(clientSource, /export\('png', false/)
+assert.match(clientSource, /image\/png/)
+assert.match(clientSource, /openSvgPreview/)
+assert.match(clientSource, /window\.open\('', '_blank'\)/)
+assert.match(clientSource, /requestFullscreen/)
+assert.match(clientSource, /exitFullscreen/)
 
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const useShell = process.platform === 'win32'

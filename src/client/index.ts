@@ -84,6 +84,12 @@ function fromSimpleMindMapNode(raw: unknown): MindmapNode | null {
 }
 function markdown(node: MindmapNode, depth = 0): string { return [`${'#'.repeat(Math.min(depth + 1, 6))} ${node.title}`, ...(node.children ?? []).map((child) => markdown(child, depth + 1))].join('\n') }
 function downloadBlob(blob: Blob, filename: string): void { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
+function safeFilename(title: string, extension: string): string { return `${title.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'mindmap'}.${extension}` }
+function svgPreviewHtml(svgUrl: string, title: string): string {
+  const escapedTitle = title.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
+  const encodedUrl = JSON.stringify(svgUrl).replace(/</g, '\\u003c')
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapedTitle} · SVG 预览</title><style>html,body{margin:0;min-height:100%;background:#0f172a}body{display:grid;place-items:center;padding:16px;box-sizing:border-box}img{display:block;max-width:100%;max-height:calc(100vh - 32px);background:#fff;border-radius:8px}</style></head><body><img src="${svgUrl}" alt="${escapedTitle} 思维导图"><script>window.addEventListener('beforeunload',()=>URL.revokeObjectURL(${encodedUrl}))</script></body></html>`
+}
 function asBlob(value: unknown): Blob | null {
   if (value instanceof Blob) return value
   if (typeof value !== 'string' || !value.startsWith('data:')) return null
@@ -108,14 +114,26 @@ type MapActions = {
   expandAll(): void
   collapseAll(): void
   collapseToLevel(level: number): void
+  exportPng(): Promise<void>
+  openSvgPreview(): Promise<void>
+  toggleFullscreen(): Promise<void>
+  isFullscreen(): boolean
 }
 
-function MapCanvas({ record, onDocumentChange, onXmind, onActions }: { record: MindmapRecord; onDocumentChange: (document: MindmapDocument) => void; onXmind: (blob: Blob | null) => void; onActions: (actions: MapActions | null) => void }): ReactElement {
+function MapCanvas({ record, onDocumentChange, onXmind, onActions, onFullscreenChange }: { record: MindmapRecord; onDocumentChange: (document: MindmapDocument) => void; onXmind: (blob: Blob | null) => void; onActions: (actions: MapActions | null) => void; onFullscreenChange: (fullscreen: boolean) => void }): ReactElement {
   const canvasRef = useRef<HTMLDivElement>(null)
+  const fullscreenRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MindMapLike | null>(null)
   const saveTimer = useRef<number | null>(null)
   const recordRef = useRef(record)
+  const [fullscreen, setFullscreen] = useState(false)
+  const canvasFullscreen = () => window.document.fullscreenElement === fullscreenRef.current
   useEffect(() => { recordRef.current = record }, [record])
+  useEffect(() => {
+    const changed = () => { const active = canvasFullscreen(); setFullscreen(active); onFullscreenChange(active); window.setTimeout(() => mapRef.current?.resize(), 0) }
+    window.document.addEventListener('fullscreenchange', changed)
+    return () => window.document.removeEventListener('fullscreenchange', changed)
+  }, [onFullscreenChange])
   useEffect(() => {
     let alive = true
     const canvas = canvasRef.current
@@ -131,6 +149,36 @@ function MapCanvas({ record, onDocumentChange, onXmind, onActions }: { record: M
         expandAll: () => { instance.execCommand?.('EXPAND_ALL') },
         collapseAll: () => { instance.execCommand?.('UNEXPAND_ALL') },
         collapseToLevel: (level) => { instance.execCommand?.('UNEXPAND_TO_LEVEL', level) },
+        exportPng: async () => {
+          const value = await instance.doExport?.export('png', false, recordRef.current.title, false, null, true)
+          const blob = asBlob(value)
+          if (!blob || blob.type !== 'image/png') throw new Error('PNG 导出失败')
+          downloadBlob(blob, safeFilename(recordRef.current.title, 'png'))
+        },
+        openSvgPreview: async () => {
+          // Open synchronously from the button click so browser popup protection does not reject the preview.
+          const preview = window.open('', '_blank')
+          if (!preview) throw new Error('浏览器阻止了新标签页，请允许弹窗后重试')
+          preview.opener = null
+          const value = await instance.doExport?.export('svg', false, recordRef.current.title)
+          const blob = asBlob(value)
+          if (!blob || blob.type !== 'image/svg+xml') { preview.close(); throw new Error('SVG 导出失败') }
+          const svgUrl = URL.createObjectURL(blob)
+          preview.document.open()
+          preview.document.write(svgPreviewHtml(svgUrl, recordRef.current.title))
+          preview.document.close()
+        },
+        toggleFullscreen: async () => {
+          const canvas = fullscreenRef.current
+          if (!canvas) throw new Error('画布尚未准备完成')
+          if (canvasFullscreen()) {
+            if (window.document.exitFullscreen) await window.document.exitFullscreen()
+            return
+          }
+          if (!canvas.requestFullscreen) throw new Error('当前浏览器不支持全屏画布')
+          await canvas.requestFullscreen()
+        },
+        isFullscreen: canvasFullscreen,
       })
       const changed = () => {
         const raw = instance.getData?.(false) as { root?: unknown } | undefined
@@ -166,7 +214,10 @@ function MapCanvas({ record, onDocumentChange, onXmind, onActions }: { record: M
       instance.render?.(() => instance.resize(), 'chat-mindmap: appearance-change')
     }
   }, [record.config.layout, record.config.theme])
-  return createElement('div', { ref: canvasRef, style: { flex: 1, minHeight: '480px', borderRadius: '8px', overflow: 'hidden', background: '#fff' } })
+  return createElement('div', { ref: fullscreenRef, style: { position: 'relative', flex: 1, minHeight: '480px', borderRadius: '8px', overflow: 'hidden', background: '#fff' } },
+    fullscreen ? createElement('button', { type: 'button', onClick: () => void window.document.exitFullscreen?.(), style: { position: 'absolute', top: '12px', right: '12px', zIndex: 2, ...buttonStyle() }, 'aria-label': '退出全屏画布' }, '退出全屏') : null,
+    createElement('div', { ref: canvasRef, style: { width: '100%', height: '100%', minHeight: '480px' } }),
+  )
 }
 
 type MindmapPreviewReference = { libraryId: string; revisionId: string; title: string; nodeCount: number; state: 'available' | 'expired'; capabilityNote?: string }
@@ -281,6 +332,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   const [draftMaxNodes, setDraftMaxNodes] = useState(360)
   const [mapActions, setMapActions] = useState<MapActions | null>(null)
   const [appearanceUndo, setAppearanceUndo] = useState<Partial<MindmapConfig> | null>(null)
+  const [canvasFullscreen, setCanvasFullscreen] = useState(false)
   const [capabilityNote, setCapabilityNote] = useState('本插件不依赖 jobs、subagents、settings；本地生成、保存和 SVG 预览可用。')
   const createControllerRef = useRef<AbortController | null>(null)
   const recordRef = useRef<MindmapRecord | null>(null)
@@ -352,10 +404,10 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     createElement('div', { style: { display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: '10px', flex: 1, minHeight: 0 } },
       createElement('aside', { style: { overflow: 'auto', borderRight: '1px solid #334155', paddingRight: '8px' } }, maps.map((item) => createElement('button', { key: item.libraryId, type: 'button', onClick: () => setSelectedId(item.libraryId), style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px', marginBottom: '5px', border: 0, borderRadius: '6px', background: selectedId === item.libraryId ? '#334155' : 'transparent', color: 'inherit', cursor: 'pointer' } }, createElement('strong', null, item.title), createElement('small', { style: { display: 'block', opacity: .65 } }, `${item.nodeCount} 节点 · ${item.source?.kind ?? 'unknown'}`)))),
       record ? createElement('section', { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' } },
-        createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' } }, createElement('strong', null, record.title), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([JSON.stringify(record.current, null, 2)], { type: 'application/json' }), `${record.title}.json`), style: buttonStyle() }, 'JSON'), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([markdown(record.current.root)], { type: 'text/markdown' }), `${record.title}.md`), style: buttonStyle() }, 'Markdown'), createElement('button', { type: 'button', disabled: !xmind, onClick: () => xmind && downloadBlob(xmind, `${record.title}.xmind`), style: buttonStyle() }, 'XMind'), createElement('button', { type: 'button', onClick: regenerate, style: buttonStyle() }, '重新生成'), record.archived ? createElement('button', { type: 'button', onClick: restore, style: buttonStyle() }, '恢复') : createElement('button', { type: 'button', onClick: archive, style: buttonStyle() }, '归档'), createElement('button', { type: 'button', onClick: remove, style: { ...buttonStyle(), color: '#fca5a5' } }, '删除')),
+        createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' } }, createElement('strong', null, record.title), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([JSON.stringify(record.current, null, 2)], { type: 'application/json' }), `${record.title}.json`), style: buttonStyle() }, 'JSON'), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([markdown(record.current.root)], { type: 'text/markdown' }), `${record.title}.md`), style: buttonStyle() }, 'Markdown'), createElement('button', { type: 'button', disabled: !xmind, onClick: () => xmind && downloadBlob(xmind, safeFilename(record.title, 'xmind')), style: buttonStyle() }, 'XMind'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.exportPng().then(() => setStatus('已导出 PNG')).catch((error) => setStatus(`PNG 导出失败：${String(error)}`)), style: buttonStyle(), 'aria-label': '导出 PNG 图片' }, 'PNG'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.openSvgPreview().then(() => setStatus('已在新标签页打开 SVG 预览')).catch((error) => setStatus(`SVG 预览失败：${String(error)}`)), style: buttonStyle(), 'aria-label': '在新网页标签预览 SVG' }, '预览 SVG'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.toggleFullscreen().then(() => setStatus(canvasFullscreen ? '已退出全屏画布' : '已进入全屏画布')).catch((error) => setStatus(`全屏画布失败：${String(error)}`)), style: buttonStyle(), 'aria-label': canvasFullscreen ? '退出全屏画布' : '进入全屏画布' }, canvasFullscreen ? '退出全屏' : '全屏画布'), createElement('button', { type: 'button', onClick: regenerate, style: buttonStyle() }, '重新生成'), record.archived ? createElement('button', { type: 'button', onClick: restore, style: buttonStyle() }, '恢复') : createElement('button', { type: 'button', onClick: archive, style: buttonStyle() }, '归档'), createElement('button', { type: 'button', onClick: remove, style: { ...buttonStyle(), color: '#fca5a5' } }, '删除')),
         createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, createElement('select', { value: record.config.layout, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ layout: event.target.value }), style: inputStyle(), 'aria-label': '布局' }, LAYOUT_OPTIONS.map(([value, label]) => createElement('option', { key: value, value }, label))), createElement('select', { value: record.config.theme, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ theme: event.target.value }), style: inputStyle(), 'aria-label': '主题' }, Object.entries(THEME_PRESETS).map(([value, preset]) => createElement('option', { key: value, value }, preset.label))), createElement('select', { value: record.config.maxNodes, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ maxNodes: Number(event.target.value) }), style: inputStyle(), 'aria-label': '最多节点' }, [120, 240, 360, 600, 1_000].map((count) => createElement('option', { key: count, value: count }, `${count} 节点`))), createElement('button', { type: 'button', disabled: !appearanceUndo, onClick: undoAppearance, style: buttonStyle() }, '撤销外观'), createElement('button', { type: 'button', onClick: () => setNoteOpen((value) => !value), style: buttonStyle() }, noteOpen ? '收起备注' : '备注 / 补充')),
         createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, createElement('button', { type: 'button', disabled: !mapActions, onClick: () => { mapActions?.undo(); setStatus('已撤销上一次编辑') }, style: buttonStyle() }, '撤销编辑'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => { mapActions?.redo(); setStatus('已重做编辑') }, style: buttonStyle() }, '重做编辑'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => { mapActions?.collapseToLevel(2); setStatus('已收起至第 2 层') }, style: buttonStyle() }, '收起至第 2 层'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => { mapActions?.collapseAll(); setStatus('已全部收起') }, style: buttonStyle() }, '全部收起'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => { mapActions?.expandAll(); setStatus('已全部展开') }, style: buttonStyle() }, '全部展开')),
-        createElement(MapCanvas, { record, onDocumentChange: persistDocument, onXmind: setXmind, onActions: setMapActions }))
+        createElement(MapCanvas, { record, onDocumentChange: persistDocument, onXmind: setXmind, onActions: setMapActions, onFullscreenChange: setCanvasFullscreen }))
         : createElement('section', { style: { display: 'grid', placeItems: 'center', minHeight: '480px', opacity: .7 } }, '暂无脑图。可以点击“新建”，或让 Agent 从文本/PDF/附件生成。')),
     createElement('span', { style: { opacity: .7 } }, status),
   )
