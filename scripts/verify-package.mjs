@@ -30,6 +30,8 @@ assert.match(clientSource, /\/maps\/\$\{encodeURIComponent\(record\.libraryId\)\
 assert.match(clientSource, /Fork 子代理运行中/)
 assert.doesNotMatch(clientSource, /inputActions\.setDraft/)
 assert.match(clientSource, /cancelRegenerate/)
+assert.match(clientSource, /重新生成备注/)
+assert.match(clientSource, /附带 \$\{note\.length\} 字备注/)
 const hostSource = await readFile(join(root, 'src', 'index.ts'), 'utf8')
 assert.match(hostSource, /injectOptional\?\.\(\['agents', 'subagents'\]/)
 assert.match(hostSource, /SubagentRun, SubagentRuntime/)
