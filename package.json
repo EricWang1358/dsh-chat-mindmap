@@ -76,7 +76,7 @@
     "simple-mind-map": "^0.14.0-fix.3",
     "tsdown": "^0.22.14",
     "typescript": "^5.9.3",
-    "unrun": "^0.1.0"
+    "unrun": "^0.3.1"
   },
   "scripts": {
     "build": "bash scripts/build.sh",
