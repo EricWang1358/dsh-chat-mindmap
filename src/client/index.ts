@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import { createElement, useEffect, useRef, useState, type ChangeEvent, type ReactElement } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import type { MindmapDocument, MindmapNode } from '../core.js'
 
@@ -359,7 +359,8 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   const [maps, setMaps] = useState<MindmapSummary[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [record, setRecord] = useState<MindmapRecord | null>(null)
-  const [status, setStatus] = useState('加载图库中…')
+  const [galleryState, setGalleryState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [status, setStatus] = useState('正在打开脑图库…')
   const [showCreate, setShowCreate] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [manualText, setManualText] = useState('')
@@ -374,11 +375,34 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   const [panelRun, setPanelRun] = useState<PanelRunView | null>(null)
   const [capabilityNote, setCapabilityNote] = useState('面板重新生成会直接启动 fork 子代理；状态只显示在脑图面板，不创建聊天 Job 或 SVG 卡。')
   const createControllerRef = useRef<AbortController | null>(null)
+  const galleryRequestRef = useRef<{ key: string; promise: Promise<MindmapSummary[]> } | null>(null)
   const recordRef = useRef<MindmapRecord | null>(null)
   useEffect(() => { recordRef.current = record }, [record])
 
-  const refresh = () => void api<MindmapSummary[]>(`/maps${showArchived ? '?archived=true' : ''}`).then((next) => { setMaps(next); setSelectedId((prev) => prev ?? next[0]?.libraryId); setStatus(`${next.length} 张${showArchived ? '已归档' : '活动'}脑图`) }).catch((error) => setStatus(String(error)))
-  useEffect(refresh, [showArchived])
+  const refresh = useCallback((force = false) => {
+    let active = true
+    setGalleryState('loading')
+    setStatus('正在读取脑图库…')
+    const key = showArchived ? 'archived' : 'active'
+    const request = !force && galleryRequestRef.current?.key === key
+      ? galleryRequestRef.current.promise
+      : api<MindmapSummary[]>(`/maps${showArchived ? '?archived=true' : ''}`)
+    galleryRequestRef.current = { key, promise: request }
+    void request.then((next) => {
+      if (!active) return
+      setMaps(next)
+      setSelectedId((prev) => prev && next.some((item) => item.libraryId === prev) ? prev : next[0]?.libraryId)
+      setGalleryState('ready')
+      setStatus(`${next.length} 张${showArchived ? '已归档' : '活动'}脑图`)
+    }).catch((error) => {
+      if (!active) return
+      if (galleryRequestRef.current?.promise === request) galleryRequestRef.current = null
+      setGalleryState('failed')
+      setStatus(`图库加载失败：${error instanceof Error ? error.message : String(error)}`)
+    })
+    return () => { active = false }
+  }, [showArchived])
+  useEffect(() => refresh(), [refresh])
   useEffect(() => {
     void api<{ capabilityNote?: string }>('/health').then((health) => { if (health.capabilityNote) setCapabilityNote(health.capabilityNote) }).catch(() => undefined)
   }, [])
@@ -389,7 +413,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     const poll = () => void api<PanelRunView>(`/panel-runs/${encodeURIComponent(panelRun.runId)}`).then((next) => {
       if (!active) return
       setPanelRun(next); setStatus(next.detail)
-      if (next.status === 'completed') { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}`).then((updated) => { if (active) { setRecord(updated); refresh() } }) }
+      if (next.status === 'completed') { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}`).then((updated) => { if (active) { setRecord(updated); void refresh(true) } }) }
     }).catch((error) => { if (active) setStatus(`重新生成状态读取失败：${String(error)}`) })
     poll()
     const timer = window.setInterval(poll, 1_000)
@@ -411,7 +435,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
       .then(async (generated) => {
         if (controller.signal.aborted) return
         await api<MindmapRecord>('/maps', { method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, document: generated.document, source: { kind: 'text', sessionId }, config: { instruction, maxNodes: draftMaxNodes } }) })
-        setShowCreate(false); setManualText(''); refresh(); setStatus('已创建脑图')
+        setShowCreate(false); setManualText(''); void refresh(true); setStatus('已创建脑图')
       })
       .catch((error) => { if (error instanceof DOMException && error.name === 'AbortError') setStatus('已取消创建，未保存任何内容'); else setStatus(String(error)) })
       .finally(() => { if (createControllerRef.current === controller) createControllerRef.current = null; setBusy(false) })
@@ -457,7 +481,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   }
 
   return createElement('main', { style: panelStyle() },
-    createElement('header', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' } }, createElement('strong', null, '脑图库'), createElement('span', { style: { opacity: .65 } }, `${maps.length} 张`), createElement('span', { role: 'status', style: { opacity: .68, fontSize: '12px' } }, capabilityNote), createElement('button', { type: 'button', onClick: () => setShowArchived((value) => !value), style: buttonStyle() }, showArchived ? '活动脑图' : '归档'), createElement('button', { type: 'button', onClick: () => setShowCreate((value) => !value), style: { ...buttonStyle(), marginLeft: 'auto' } }, '新建')),
+    createElement('header', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' } }, createElement('strong', null, '脑图库'), createElement('span', { style: { opacity: .65 } }, `${maps.length} 张`), createElement('span', { role: 'status', style: { opacity: .68, fontSize: '12px' } }, capabilityNote), galleryState === 'loading' ? createElement('span', { role: 'status', style: { opacity: .7 } }, '正在读取…') : null, galleryState === 'failed' ? createElement('button', { type: 'button', onClick: () => void refresh(true), style: buttonStyle() }, '重试加载') : null, createElement('button', { type: 'button', onClick: () => setShowArchived((value) => !value), style: buttonStyle() }, showArchived ? '活动脑图' : '归档'), createElement('button', { type: 'button', onClick: () => setShowCreate((value) => !value), style: { ...buttonStyle(), marginLeft: 'auto' } }, '新建')),
     showCreate && createElement('section', { style: { padding: '8px', marginBottom: '8px', border: '1px solid #334155', borderRadius: '8px' } }, createElement('textarea', { rows: 5, value: manualText, placeholder: '粘贴文本或 Markdown（也可以让 Agent 从 PDF/附件生成）', onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setManualText(event.target.value), style: { ...inputStyle(), resize: 'vertical' } }), createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' } }, '最多节点', createElement('select', { value: draftMaxNodes, onChange: (event: ChangeEvent<HTMLSelectElement>) => setDraftMaxNodes(Number(event.target.value)), style: { ...inputStyle(), width: 'auto' }, 'aria-label': '新脑图最多节点' }, [120, 240, 360, 600, 1_000].map((count) => createElement('option', { key: count, value: count }, `${count}`)))), createElement('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } }, createElement('button', { type: 'button', disabled: busy, onClick: createMap, style: buttonStyle() }, busy ? '生成中…' : '生成并保存'), createElement('button', { type: 'button', onClick: () => { createControllerRef.current?.abort(); createControllerRef.current = null; setShowCreate(false); setManualText(''); setInstruction(''); setBusy(false); setStatus('已取消创建，未保存任何内容') }, style: buttonStyle() }, '取消'))),
     record && noteOpen && createElement('section', { style: { marginBottom: '8px', border: '1px solid #334155', borderRadius: '8px', padding: '6px 8px' } }, createElement('summary', { style: { cursor: 'pointer', userSelect: 'none' } }, instruction.trim() ? `备注 / 补充 · ${instruction.trim().length} 字` : '备注 / 补充'), createElement('textarea', { rows: 3, value: instruction, placeholder: '本次重新生成会将此备注逐字附加到 fork 子代理提示词', onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setInstruction(event.target.value), style: { ...inputStyle(), resize: 'vertical', marginTop: '8px' }, 'aria-label': '重新生成备注' })),
     createElement('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(140px,220px) minmax(0,1fr)', gap: '12px', flex: 1, minHeight: 0 } },
