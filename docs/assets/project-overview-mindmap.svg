@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">DSH Chat Mindmap project overview</title>
+  <desc id="desc">A mindmap showing the DSH Chat Mindmap plugin architecture, editor, export, persistence and quality checks.</desc>
+  <defs>
+    <style>
+      .bg{fill:#0f172a}.line{fill:none;stroke:#475569;stroke-width:3;stroke-linecap:round}.root{fill:#0f766e;stroke:#5eead4;stroke-width:2}.a{fill:#172554;stroke:#60a5fa}.b{fill:#3f1d5b;stroke:#d8b4fe}.c{fill:#3f6212;stroke:#bef264}.d{fill:#7c2d12;stroke:#fdba74}.t{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#f8fafc;font-weight:650;font-size:18px}.s{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#cbd5e1;font-size:14px}.r{font-family:system-ui,-apple-system,Segoe UI,sans-serif;fill:#fff;font-weight:750;font-size:24px}
+    </style>
+  </defs>
+  <rect class="bg" width="1200" height="680" rx="20"/>
+  <path class="line" d="M600 340C505 340 480 145 350 145M600 340C505 340 480 275 350 275M600 340C700 340 735 145 875 145M600 340C700 340 735 275 875 275M600 340C700 340 735 430 875 430M600 340C505 340 480 510 350 510"/>
+  <g transform="translate(475 287)"><rect class="root" width="250" height="106" rx="16"/><text class="r" x="125" y="47" text-anchor="middle">DSH Chat Mindmap</text><text class="s" x="125" y="76" text-anchor="middle">对话上下文 → 可编辑脑图</text></g>
+  <g transform="translate(95 82)"><rect class="a" width="255" height="126" rx="13"/><text class="t" x="18" y="35">生成与聊天</text><text class="s" x="18" y="63">• generate_chat_mindmap</text><text class="s" x="18" y="88">• 稳定 revision 工具卡</text><text class="s" x="18" y="113">• SVG 结果预览</text></g>
+  <g transform="translate(95 218)"><rect class="b" width="255" height="115" rx="13"/><text class="t" x="18" y="35">脑图编辑器</text><text class="s" x="18" y="63">• 360 默认 / 可配至 1000</text><text class="s" x="18" y="88">• 折叠、撤销、重做</text></g>
+  <g transform="translate(875 82)"><rect class="c" width="245" height="115" rx="13"/><text class="t" x="18" y="35">导出与视图</text><text class="s" x="18" y="63">• JSON / Markdown / XMind / PNG</text><text class="s" x="18" y="88">• SVG 新标签预览、全屏画布</text></g>
+  <g transform="translate(875 220)"><rect class="d" width="245" height="115" rx="13"/><text class="t" x="18" y="35">持久化</text><text class="s" x="18" y="63">• Host 原子 JSON 写入</text><text class="s" x="18" y="88">• current + previous 两代</text></g>
+  <g transform="translate(875 377)"><rect class="a" width="245" height="106" rx="13"/><text class="t" x="18" y="35">rc8 兼容</text><text class="s" x="18" y="63">• 仅使用公开 DSH API</text><text class="s" x="18" y="88">• optional 能力可见降级</text></g>
+  <g transform="translate(95 452)"><rect class="c" width="255" height="115" rx="13"/><text class="t" x="18" y="35">质量保障</text><text class="s" x="18" y="63">• 类型、单元、HTTP 测试</text><text class="s" x="18" y="88">• package / Gate 验证与 CI</text></g>
+  <text class="s" x="600" y="635" text-anchor="middle">示例图由插件的结构化 MindmapDocument 模型表达；可在 DSH 的“脑图”标签中继续编辑。</text>
+</svg>
