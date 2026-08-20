@@ -287,6 +287,9 @@ function requestSecurityError(req: IncomingMessage): InputError | null {
     const host = headers.host
     if (!host || parsed.host !== host || !['http:', 'https:'].includes(parsed.protocol)) return new InputError('origin is not the DSH web origin', 403)
   }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? '')) {
+    if (headers['x-dsh-chat-mindmap-request'] !== '1') return new InputError('plugin request header required', 403)
+  }
   const remote = req.socket?.remoteAddress
   if (remote && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) return new InputError('non-loopback request rejected', 403)
   return null

@@ -13,7 +13,7 @@ class FakeRequest extends EventEmitter {
     super()
     this.body = body
     this.url = url
-    this.headers = {}
+    this.headers = { 'x-dsh-chat-mindmap-request': '1' }
     this.socket = { remoteAddress: '127.0.0.1' }
     this.method = method
   }

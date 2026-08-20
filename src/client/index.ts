@@ -85,7 +85,7 @@ type SessionService = { binding(id: string): { session?: { getSnapshot(): unknow
 type ApiPayload<T> = { ok?: boolean; value?: T; error?: string }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init)
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers: { 'x-dsh-chat-mindmap-request': '1', ...(init?.headers ?? {}) } })
   const payload = await response.json() as ApiPayload<T>
   if (!response.ok || !payload.ok || payload.value === undefined) throw new Error(payload.error ?? '脑图服务请求失败')
   return payload.value
