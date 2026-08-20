@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { buildMindmap } from './core.js';
-export declare const name = "@dsh-external/dsh-chat-mindmap";
+export declare const name = "@ericwang1358/dsh-chat-mindmap";
 export declare const inject: string[];
 interface PluginContext extends Context {
     webServer: {

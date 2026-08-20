@@ -18,7 +18,7 @@ import {
   type MindmapSource,
 } from './library.js'
 
-export const name = '@dsh-external/dsh-chat-mindmap'
+export const name = '@ericwang1358/dsh-chat-mindmap'
 export const inject = ['tools', 'webServer']
 
 interface GenerateInput {
@@ -481,7 +481,7 @@ export function apply(ctx: PluginContext): void {
   ctx.effect(() => ctx.tools.register(present), 'chat-mindmap: present_chat_mindmap')
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
-    path: '/@dsh-external/dsh-chat-mindmap',
+    path: '/@ericwang1358/dsh-chat-mindmap',
     handler: async (req, res) => {
       const securityError = requestSecurityError(req)
       if (securityError) { writeJson(res, securityError.status, { ok: false, error: securityError.message }); return }

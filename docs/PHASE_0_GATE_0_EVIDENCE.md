@@ -1,7 +1,7 @@
 # Phase 0 Gate 0 Evidence
 
 Date: 2026-08-20
-Repository: `@dsh-external/dsh-chat-mindmap`
+Repository: `@ericwang1358/dsh-chat-mindmap`
 Status: **Automated contracts PASS; selected live GUI evidence recorded; remaining live items remain pending**
 
 ## Reproducible checks

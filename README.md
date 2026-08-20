@@ -1,6 +1,6 @@
 # DSH Chat Mindmap
 
-`@dsh-external/dsh-chat-mindmap` is a DSH hybrid plugin for turning Agent-provided chat, text, PDF, image, or document context into a persistent editable mindmap library.
+`@ericwang1358/dsh-chat-mindmap` is a DSH hybrid plugin for turning Agent-provided chat, text, PDF, image, or document context into a persistent editable mindmap library.
 
 ## Product shape
 
@@ -24,10 +24,10 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
 
 - **Host tool:** `generate_chat_mindmap`
 - **Web API:**
-  - `POST /@dsh-external/dsh-chat-mindmap/generate`
-  - `GET /@dsh-external/dsh-chat-mindmap/maps`
-  - `GET/PATCH/DELETE /@dsh-external/dsh-chat-mindmap/maps/:id`
-  - `POST /@dsh-external/dsh-chat-mindmap/maps/:id/archive`
+  - `POST /@ericwang1358/dsh-chat-mindmap/generate`
+  - `GET /@ericwang1358/dsh-chat-mindmap/maps`
+  - `GET/PATCH/DELETE /@ericwang1358/dsh-chat-mindmap/maps/:id`
+  - `POST /@ericwang1358/dsh-chat-mindmap/maps/:id/archive`
 - **UI:** `conversation.view` slot with a persistent gallery/editor; the gallery loads only when this panel mounts (never during DSH web startup), deduplicates its in-flight request, and exposes a retry state instead of leaving an indefinite loading label.
 - **Renderer:** [SimpleMindMap](https://github.com/wanglin2/mind-map), split-imported instead of `full.js`
 - **Exports:** JSON, Markdown, XMind, and PNG
@@ -49,12 +49,12 @@ The diagram below is a real project-outline example. Its editable Markdown sourc
 
 There are three different installation modes. **Do not use `dev_inject_plugin` for a normal installation**: it is a temporary live injection and is intentionally lost after DSH restarts.
 
-### A. End user: npm package (future primary path)
+### A. End user: npm package (recommended)
 
-`@dsh-external/dsh-chat-mindmap` npm package is not currently published. Once the maintainer publishes and verifies the package on npm, this becomes the simplest install path:
+Install the published package persistently:
 
 ```powershell
-dsh plugin --profile web add @dsh-external/dsh-chat-mindmap@0.1.1
+dsh plugin --profile web add @ericwang1358/dsh-chat-mindmap@0.1.3
 ```
 
 `dsh plugin` forwards to pnpm, writes the dependency into `~/.dsh/profiles/web/package.json`, adds the package to `dsh.profile.bundles`, and makes it survive restart. Then restart the DSH Web profile:
@@ -67,16 +67,16 @@ If the package is published under a different scope/name, replace the package sp
 
 ### B. End user: GitHub Release tarball (current recommended path)
 
-For the currently published `v0.1.1`, download the release asset from [GitHub Release v0.1.1](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.1), then install it persistently:
+For the current hardening release, download the release asset from [GitHub Release v0.1.2](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.2), then install it persistently:
 
 ```powershell
-dsh plugin --profile web add file:C:/path/to/dsh-external-dsh-chat-mindmap-0.1.1.tgz
+dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.3.tgz
 ```
 
 ### C. End user: GitHub repository
 
 ```powershell
-dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#v0.1.1
+dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap#main
 ```
 
 The Git repository must contain built `lib/` artifacts, or a verified `prepare`/build workflow. The project repository is https://github.com/EricWang1358/dsh-chat-mindmap. For the most reliable user install, publish npm or attach a built tarball instead of requiring every user to compile TypeScript.
@@ -94,20 +94,20 @@ npm pack
 Then copy the generated `.tgz` to the target machine and install it persistently. On Windows, use a `file:` URL with forward slashes or an absolute tarball path:
 
 ```powershell
-dsh plugin --profile web add file:C:/path/to/dsh-external-dsh-chat-mindmap-0.1.1.tgz
-# equivalent: dsh plugin --profile web add C:/path/to/dsh-external-dsh-chat-mindmap-0.1.1.tgz
+dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.3.tgz
+# equivalent: dsh plugin --profile web add C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.1.tgz
 ```
 
 Restart DSH after installation. The `health` URL is an API endpoint, not a standalone app page; if the plugin is not installed/persisted, DSH's SPA fallback will return the conversation shell HTML instead of JSON. Verify the named route rather than opening it as a browser page:
 
 ```powershell
-Invoke-WebRequest http://127.0.0.1:3080/@dsh-external/dsh-chat-mindmap/health
+Invoke-WebRequest http://127.0.0.1:3080/@ericwang1358/dsh-chat-mindmap/health
 ```
 
 Expected content:
 
 ```json
-{"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":4}
+{"ok":true,"plugin":"@ericwang1358/dsh-chat-mindmap","version":4}
 ```
 
 ### E. Local developer checkout

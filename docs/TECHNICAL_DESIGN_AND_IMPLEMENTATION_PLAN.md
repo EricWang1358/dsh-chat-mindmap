@@ -397,7 +397,7 @@ Call present_chat_mindmap with libraryId and revisionId.
 
 ## 11. Panel API
 
-所有路由前缀保持 `/@dsh-external/dsh-chat-mindmap`。
+所有路由前缀保持 `/@ericwang1358/dsh-chat-mindmap`。
 
 | Method | Path | 行为 |
 |---|---|---|

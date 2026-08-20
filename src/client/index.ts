@@ -6,8 +6,8 @@ import { createElement, useCallback, useEffect, useRef, useState, type ChangeEve
 import { createPortal } from 'react-dom'
 import type { MindmapDocument, MindmapNode } from '../core.js'
 
-const PLUGIN_ID = '@dsh-external/dsh-chat-mindmap'
-const API_BASE = '/@dsh-external/dsh-chat-mindmap'
+const PLUGIN_ID = '@ericwang1358/dsh-chat-mindmap'
+const API_BASE = '/@ericwang1358/dsh-chat-mindmap'
 type ClientContext = Context & { slots: SlotRegistry; sessions: SessionService }
 export const inject = ['slots', 'sessions']
 

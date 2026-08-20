@@ -56,7 +56,7 @@ try {
   apply(ctx)
   assert.ok(handler)
 
-  const request = async (body, url = '/@dsh-external/dsh-chat-mindmap/generate', method = 'POST') => {
+  const request = async (body, url = '/@ericwang1358/dsh-chat-mindmap/generate', method = 'POST') => {
     const req = new FakeRequest(body, url, method)
     const res = new FakeResponse()
     const result = handler(req, res)
@@ -78,32 +78,32 @@ try {
   assert.equal(oversized.status, 413)
   assert.equal(oversized.payload.ok, false)
 
-  const invalidId = await request('', '/@dsh-external/dsh-chat-mindmap/maps/%E0%A4%A', 'GET')
+  const invalidId = await request('', '/@ericwang1358/dsh-chat-mindmap/maps/%E0%A4%A', 'GET')
   assert.equal(invalidId.status, 400)
 
-  const created = await request(JSON.stringify({ title: 'Created', document: buildMindmap('# Created\n## Child'), config: { maxNodes: 1000 } }), '/@dsh-external/dsh-chat-mindmap/maps', 'POST')
+  const created = await request(JSON.stringify({ title: 'Created', document: buildMindmap('# Created\n## Child'), config: { maxNodes: 1000 } }), '/@ericwang1358/dsh-chat-mindmap/maps', 'POST')
   assert.equal(created.status, 201)
   assert.equal(created.payload.value.config.maxNodes, 1000)
   const patchDocument = buildMindmap('# Patch\n## Child')
   patchDocument.root.children[0].note = '子节点要覆盖边界案例，并保留练习题。'
   const saved = await saveMindmap({ title: 'Patch', document: patchDocument })
-  const invalidPatch = await request(JSON.stringify({ document: { version: 1 } }), `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}`, 'PATCH')
+  const invalidPatch = await request(JSON.stringify({ document: { version: 1 } }), `/@ericwang1358/dsh-chat-mindmap/maps/${saved.libraryId}`, 'PATCH')
   assert.equal(invalidPatch.status, 400)
 
   const revisionId = revisionIdOf(saved.current)
-  const preview = await request('', `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/${revisionId}`, 'GET')
+  const preview = await request('', `/@ericwang1358/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/${revisionId}`, 'GET')
   assert.equal(preview.status, 200)
   assert.equal(preview.payload.value.revisionId, revisionId)
   assert.equal(preview.payload.value.document.title, 'Patch')
-  const expiredPreview = await request('', `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/rev-000000000000000000000000`, 'GET')
+  const expiredPreview = await request('', `/@ericwang1358/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/rev-000000000000000000000000`, 'GET')
   assert.equal(expiredPreview.status, 410)
 
   const note = '保留所有原始分支，并优先展开性能验收项。'
-  const regeneration = await request(JSON.stringify({ sessionId: fakeParent.id, expectedUpdatedAt: saved.updatedAt, instruction: note }), `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/regenerate`)
+  const regeneration = await request(JSON.stringify({ sessionId: fakeParent.id, expectedUpdatedAt: saved.updatedAt, instruction: note }), `/@ericwang1358/dsh-chat-mindmap/maps/${saved.libraryId}/regenerate`)
   assert.equal(regeneration.status, 202)
   assert.equal(regeneration.payload.value.status, 'running')
   await new Promise((resolve) => setTimeout(resolve, 25))
-  const run = await request('', `/@dsh-external/dsh-chat-mindmap/panel-runs/${regeneration.payload.value.runId}`, 'GET')
+  const run = await request('', `/@ericwang1358/dsh-chat-mindmap/panel-runs/${regeneration.payload.value.runId}`, 'GET')
   assert.equal(forkStarts, 1)
   assert.equal(forkPrompt, `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。节点备注是附加参考：应吸收其事实、范围和约束，但绝不能把备注文字当作节点标题逐字输出。\n\n当前标题：Patch\n当前脑图 Markdown：\n# Patch\n## Child\n\n<node-notes format="json">\n[${JSON.stringify({ id: patchDocument.root.children[0].id, path: 'Patch > Child', note: '子节点要覆盖边界案例，并保留练习题。' })}]\n</node-notes>\n\n最多节点：360\n\n<panel-note>\n${note}\n</panel-note>\n\n如果没有 panel-note，则保持原主题和层级信息，必要时改善结构。`)
   assert.equal(run.payload.value.noteLength, [...note].length)
