@@ -1,8 +1,8 @@
 # Phase 0 Gate 0 Evidence
 
-Date: 2026-08-19
+Date: 2026-08-20
 Repository: `@dsh-external/dsh-chat-mindmap`
-Status: **NOT PASSED — live evidence required before Phase 1**
+Status: **Automated contracts PASS; selected live GUI evidence recorded; remaining live items remain pending**
 
 ## Reproducible checks
 
@@ -16,6 +16,10 @@ npm test
 `verify:gate0` is implemented by `scripts/gate0.mjs`. It checks the installed DSH checkout and local SimpleMindMap source contracts, then exercises the fork seed boundary and optional-capability fixture. It exits zero for contract verification and reports live-only checks as `PENDING_LIVE`. Use `node scripts/gate0.mjs --require-live` to make any pending live item fail the command.
 
 Current automated result: static/fixture checks PASS; the LocalJobRegistry runtime fixture also passes; existing Core, Library and HTTP tests PASS. The command intentionally keeps parent-Agent/browser-only checks as `PENDING_LIVE`.
+
+## 2026-08-20 GUI observation
+
+The existing DSH Web GUI was inspected at `http://127.0.0.1:3080` after the 0.1.1 hot reload. The screenshot showed the real failure mode: the conversation host exposed a short usable panel, while the brainmap workspace still assumed excessive page height; the lower half became an empty dark region and the fixed 228px library consumed valuable width. The 0.1.x follow-up adds a measured workspace viewport, a collapsible library rail, and finite flex sizing. This observation is visual evidence of the defect and of the required acceptance dimensions; it is not a claim that browser automation has proven every interaction.
 
 ## Result table
 
@@ -39,6 +43,6 @@ These checks must be performed in the existing DSH Web GUI at `http://127.0.0.1:
 
 ## Gate decision
 
-Gate 0 is **blocked**. The product refactor must not start. G0-3 now has live transcript evidence, while runtime fixtures cover Jobs settlement/read, replay serialization, SVG Blob bytes, and the real plugin Host mount seam. The remaining three live gaps are the actual `call=null` history-window replay, SVG Blob URL plus official ImageLightbox lifecycle, and user-visible degradation when optional services are absent. Any failed live assumption must first update the technical plan's ADR/interface design as required by Section 19.
+Gate 0 automated contracts and local runtime fixtures are passing. Browser-only replay, SVG dialog interaction, and optional-service user-visible degradation remain explicitly `PENDING_LIVE`; the 2026-08-20 screenshot has been recorded as defect evidence for the responsive workspace fix, not as full E2E proof.
 
 No Phase 1 or later source refactor was performed as part of this verification work.

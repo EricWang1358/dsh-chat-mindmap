@@ -48,6 +48,9 @@ jobs:
       - name: Test core, library, and HTTP behavior
         run: npm test
 
+      - name: Static security scan
+        run: npm run verify:sast
+
       - name: Verify publishable package
         run: npm run verify:package
 

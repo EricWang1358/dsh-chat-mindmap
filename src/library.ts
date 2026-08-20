@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { countMindmapNodes, validateMindmapDocument, type MindmapDocument } from './core.js'
@@ -65,6 +65,9 @@ const MAX_TITLE_LENGTH = 120
 const MAX_SOURCE_STRING_LENGTH = 500
 const MAX_METADATA_ENTRIES = 32
 const MAX_METADATA_VALUE_LENGTH = 500
+const MAX_MAP_COUNT = 1_000
+const MAX_TOTAL_STORAGE_BYTES = 100 * 1024 * 1024
+const LIST_CONCURRENCY = 8
 function rootPath(): string {
   return process.env.DSH_MINDMAP_HOME || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'chat-mindmap')
 }
@@ -78,6 +81,46 @@ function mapPath(id: string): string { return join(rootPath(), 'maps', `${safeId
 
 function uid(): string {
   return `map-${Date.now().toString(36)}-${randomUUID().replaceAll('-', '').slice(0, 12)}`
+}
+interface SummaryIndexEntry {
+  libraryId: string
+  title: string
+  source?: MindmapSource
+  config: MindmapConfig
+  createdAt: string
+  updatedAt: string
+  hasPrevious: boolean
+  archived: boolean
+  nodeCount: number
+}
+
+
+function summaryPath(): string { return join(rootPath(), 'summaries.json') }
+
+async function readSummaryIndex(): Promise<SummaryIndexEntry[]> {
+  const value = await readJson<unknown>(summaryPath(), [])
+  if (!Array.isArray(value)) throw new Error(`invalid mindmap summary index in ${summaryPath()}`)
+  return value.filter(isRecord).map((item) => item as unknown as SummaryIndexEntry).filter((item) => typeof item.libraryId === 'string' && safeId(item.libraryId))
+}
+
+async function writeSummaryIndex(entries: SummaryIndexEntry[]): Promise<void> {
+  await atomicJson(summaryPath(), entries)
+}
+
+function summaryOf(record: MindmapRecord): SummaryIndexEntry {
+  return { libraryId: record.libraryId, title: record.title, source: record.source, config: record.config, createdAt: record.createdAt, updatedAt: record.updatedAt, hasPrevious: Boolean(record.previous), archived: Boolean(record.archived), nodeCount: countMindmapNodes(record.current.root) }
+}
+
+async function ensureStorageBudget(id: string, nextBytes: number): Promise<void> {
+  const ids = await readIndex()
+  if (!ids.includes(id) && ids.length >= MAX_MAP_COUNT) throw new Error(`mindmap library limit reached (${MAX_MAP_COUNT} maps)`)
+  let total = ids.includes(id) ? 0 : nextBytes
+  for (const currentId of ids) {
+    if (currentId === id) total += nextBytes
+    else total += await stat(mapPath(currentId)).then((value) => value.size).catch(() => 0)
+    if (total > MAX_TOTAL_STORAGE_BYTES) throw new Error(`mindmap storage limit reached (${MAX_TOTAL_STORAGE_BYTES} bytes)`)
+  }
+  if (!ids.includes(id) && total === 0 && nextBytes > MAX_TOTAL_STORAGE_BYTES) throw new Error('mindmap record exceeds storage limit')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -209,24 +252,24 @@ function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function listMindmaps(filters?: { workspaceId?: string; sessionId?: string; archived?: boolean }): Promise<MindmapSummary[]> {
+  const summaries = await readSummaryIndex()
+  const sourceMatches = (summary: SummaryIndexEntry) => summaryMatches(summary, filters)
+  if (summaries.length) return summaries.filter(sourceMatches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const ids = await readIndex()
-  const records = await Promise.all(ids.map(readRecord))
-  return records.filter((record): record is MindmapRecord => record !== null &&
-    (filters?.archived === undefined ? !record.archived : Boolean(record.archived) === filters.archived) &&
-    (!filters?.workspaceId || record.source?.workspaceId === filters.workspaceId) &&
-    (!filters?.sessionId || record.source?.sessionId === filters.sessionId))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((record) => ({
-      libraryId: record.libraryId,
-      title: record.title,
-      source: record.source,
-      config: record.config,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      hasPrevious: Boolean(record.previous),
-      archived: Boolean(record.archived),
-      nodeCount: countMindmapNodes(record.current.root),
-    }))
+  const records: MindmapRecord[] = []
+  for (let offset = 0; offset < ids.length; offset += LIST_CONCURRENCY) {
+    const batch = await Promise.all(ids.slice(offset, offset + LIST_CONCURRENCY).map(readRecord))
+    records.push(...batch.filter((record): record is MindmapRecord => record !== null))
+  }
+  const next = records.map(summaryOf)
+  await writeSummaryIndex(next)
+  return next.filter(sourceMatches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+function summaryMatches(summary: SummaryIndexEntry, filters?: { workspaceId?: string; sessionId?: string; archived?: boolean }): boolean {
+  return (filters?.archived === undefined ? !summary.archived : summary.archived === filters.archived) &&
+    (!filters?.workspaceId || summary.source?.workspaceId === filters.workspaceId) &&
+    (!filters?.sessionId || summary.source?.sessionId === filters.sessionId)
 }
 
 export async function getMindmap(id: string): Promise<MindmapRecord | null> {
@@ -261,10 +304,15 @@ export async function saveMindmap(input: {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     }
+    const serialized = JSON.stringify(record)
+    await ensureStorageBudget(id, Buffer.byteLength(serialized, 'utf8'))
     await atomicJson(mapPath(id), record)
     const ids = await readIndex()
     if (!ids.includes(id)) ids.push(id)
     await atomicJson(indexPath(), ids)
+    const summaries = (await readSummaryIndex()).filter((entry) => entry.libraryId !== id)
+    summaries.push(summaryOf(record))
+    await writeSummaryIndex(summaries)
     return record
   })
 }
@@ -292,10 +340,15 @@ export async function updateMindmap(id: string, patch: {
       archived: patch.archived ?? existing.archived ?? false,
       updatedAt: now,
     }
+    const serialized = JSON.stringify(record)
+    await ensureStorageBudget(safeLibraryId, Buffer.byteLength(serialized, 'utf8'))
     await atomicJson(mapPath(safeLibraryId), record)
     const ids = await readIndex()
     if (!ids.includes(safeLibraryId)) ids.push(safeLibraryId)
     await atomicJson(indexPath(), ids)
+    const summaries = (await readSummaryIndex()).filter((entry) => entry.libraryId !== safeLibraryId)
+    summaries.push(summaryOf(record))
+    await writeSummaryIndex(summaries)
     return record
   })
 }
@@ -315,6 +368,8 @@ export async function deleteMindmap(id: string): Promise<boolean> {
     } catch (error) {
       if (!isNodeError(error) || error.code !== 'ENOENT') throw error
     }
+    const summaries = (await readSummaryIndex()).filter((entry) => entry.libraryId !== safeLibraryId)
+    await writeSummaryIndex(summaries)
     return true
   })
 }

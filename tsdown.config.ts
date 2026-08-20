@@ -20,7 +20,7 @@ const clientBundle: UserConfig = {
   dts: false,
   css: { inject: true, minify: true },
   minify: true,
-  sourcemap: true,
+  sourcemap: false,
   clean: false,
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
