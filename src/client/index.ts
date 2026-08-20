@@ -142,7 +142,13 @@ function MapCanvas({ record, onDocumentChange, onXmind, onActions, onFullscreenC
     setRenderState('loading')
     await nextPaint()
     if (!mapRef.current) return
-    try { task() } finally { if (mapRef.current) setRenderState('ready') }
+    try {
+      task()
+      // SimpleMindMap schedules the SVG update synchronously/asynchronously
+      // depending on its layout. Keep the canvas-only blocker until the browser
+      // has had a full post-command paint opportunity, not just until command return.
+      await nextPaint()
+    } finally { if (mapRef.current) setRenderState('ready') }
   }
   useEffect(() => { recordRef.current = record }, [record])
   useEffect(() => {
@@ -224,6 +230,7 @@ function MapCanvas({ record, onDocumentChange, onXmind, onActions, onFullscreenC
       const cleanup = () => instance.off?.('data_change', changed)
       // attach cleanup to instance for effect teardown
         ;(instance as unknown as { __cleanup?: () => void }).__cleanup = cleanup
+        await nextPaint()
         if (alive) setRenderState('ready')
       } catch {
         if (alive) { onXmind(null); setRenderState('failed') }
