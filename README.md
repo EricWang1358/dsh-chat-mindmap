@@ -31,7 +31,7 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
 - **UI:** `conversation.view` slot with a persistent gallery/editor
 - **Renderer:** [SimpleMindMap](https://github.com/wanglin2/mind-map), split-imported instead of `full.js`
 - **Exports:** JSON, Markdown, XMind, and PNG
-- **Canvas view:** Open a read-only SVG preview in a new browser tab, or enter/exit a browser-native fullscreen canvas with automatic resize.
+- **Canvas view:** Open a read-only SVG preview in a new browser tab, or enter/exit a browser-native fullscreen canvas with automatic resize. Large-map creation and tree-wide expand/collapse show a canvas-only loading spinner, leaving the library and toolbar responsive.
 - **Chat preview:** `present_chat_mindmap` returns a durable `libraryId` + content-addressed `revisionId`; the client recreates an `image/svg+xml` Blob preview, shows it in an accessible dialog, and revokes its object URL on unmount. DSH `0.1.0-rc.8` does not publicly export `ImageLightbox`, so this plugin intentionally uses its own dialog and does not claim the private component.
 - **Source boundary:** Agent reads attachments and supplies extracted text plus source metadata; the plugin does not retain source text by default
 - **Regeneration:** the UI prepares a bounded prompt in the current DSH input, including `libraryId`, current edited tree, source metadata, and configuration; Agent re-reads/re-supplies the source and calls the tool again

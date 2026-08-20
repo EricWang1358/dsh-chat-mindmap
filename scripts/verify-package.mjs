@@ -16,6 +16,10 @@ assert.match(clientSource, /openSvgPreview/)
 assert.match(clientSource, /window\.open\('', '_blank'\)/)
 assert.match(clientSource, /requestFullscreen/)
 assert.match(clientSource, /exitFullscreen/)
+assert.match(clientSource, /runCanvasTask/)
+assert.match(clientSource, /aria-busy/)
+assert.match(clientSource, /正在渲染脑图/)
+assert.match(clientSource, /更多操作/)
 
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const useShell = process.platform === 'win32'
