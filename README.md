@@ -165,7 +165,7 @@ Each record stores metadata and bounded visual/generation settings, never the ex
 
 ## Verification
 
-The current browser bundle is approximately **560 KB** (about **163 KB gzip**) after split imports and minification, versus the earlier multi-megabyte `full.js` bundle.
+The current browser bundle is approximately **576 KB** (**168 KB gzip**) after split imports and minification, versus the earlier multi-megabyte `full.js` bundle. CI enforces a **200 KiB gzip** client-bundle budget through `npm run verify:bundle`.
 
 The GUI verification path has been exercised:
 
