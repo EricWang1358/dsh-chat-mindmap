@@ -107,7 +107,7 @@ Invoke-WebRequest http://127.0.0.1:3080/@dsh-external/dsh-chat-mindmap/health
 Expected content:
 
 ```json
-{"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":2}
+{"ok":true,"plugin":"@dsh-external/dsh-chat-mindmap","version":4}
 ```
 
 ### D. Local developer checkout
