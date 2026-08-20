@@ -54,6 +54,7 @@ export declare function saveMindmap(input: {
     source?: MindmapSource;
     archived?: boolean;
     rotatePrevious?: boolean;
+    expectedUpdatedAt?: string;
 }): Promise<MindmapRecord>;
 export declare function updateMindmap(id: string, patch: {
     title?: string;

@@ -1,8 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { buildMindmap, countMindmapNodes, mindmapToMarkdown, validateMindmapDocument, type MindmapBuildOptions, type MindmapDocument } from './core.js'
+import { buildMindmap, buildMindmapFromOutline, countMindmapNodes, mindmapToMarkdown, validateMindmapDocument, type MindmapBuildOptions, type MindmapDocument } from './core.js'
 import { revisionIdOf } from './revisions.js'
 import {
   archiveMindmap,
@@ -40,6 +42,23 @@ interface CreateMapInput {
   document: MindmapDocument
   config?: Partial<MindmapConfig>
   source?: MindmapSource
+}
+
+interface RegenerateInput {
+  sessionId: string
+  expectedUpdatedAt: string
+  instruction?: string
+}
+
+type SubagentRuntime = { getProvider(name: string): unknown; start(name: string, request: { label: string; prompt: Array<{ type: 'text'; text: string }>; parent: Agent; signal: AbortSignal; outputSchema: Record<string, unknown>; maxDepth: number; toolFilter: { allow: string[] }; persona: string }): Promise<SubagentRun> }
+type AgentRegistry = { get(id: string): Agent | undefined }
+
+interface PanelRunView {
+  runId: string
+  libraryId: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  detail: string
+  revisionId?: string
 }
 
 interface PresentInput {
@@ -202,6 +221,11 @@ function parsePatchInput(value: unknown): PatchInput {
   return patch
 }
 
+function parseRegenerateInput(value: unknown): RegenerateInput {
+  if (!isRecord(value)) throw new InputError('request body must be an object')
+  return { sessionId: parseString(value.sessionId, 'sessionId', 180, true)!, expectedUpdatedAt: parseString(value.expectedUpdatedAt, 'expectedUpdatedAt', 64, true)!, instruction: parseString(value.instruction, 'instruction', 4_000) }
+}
+
 function parsePresentInput(value: unknown): PresentInput {
   if (!isRecord(value)) throw new InputError('request body must be an object')
   return {
@@ -296,7 +320,62 @@ async function generateResult(args: GenerateInput, sessionId?: string): Promise<
   }
 }
 
-const CAPABILITY_NOTE = 'DSH rc8 optional jobs/subagents/settings are not required by this plugin; local generation, persistence, and SVG preview remain available.'
+const CAPABILITY_NOTE = '面板重新生成会在可用时直接使用 fork 子代理，并仅在脑图面板显示状态；它不会创建 DSH Job、写入主聊天或追加聊天 SVG 卡。'
+const OUTLINE_SCHEMA = { type: 'object', additionalProperties: false, required: ['title', 'outline'], properties: { title: { type: 'string' }, outline: { type: 'string' } } }
+const PANEL_RUN_TIMEOUT_MS = 180_000
+
+type PanelRun = PanelRunView & { controller: AbortController; run?: SubagentRun }
+
+function asOutline(value: unknown): { title: string; outline: string } {
+  if (!isRecord(value) || typeof value.title !== 'string' || typeof value.outline !== 'string' || !value.title.trim() || !value.outline.trim() || value.title.length > 120 || value.outline.length > 200_000) throw new Error('子代理没有返回有效的脑图大纲')
+  return { title: value.title.trim(), outline: value.outline.trim() }
+}
+
+function regenerationPrompt(record: Awaited<ReturnType<typeof getMindmap>>, instruction?: string): string {
+  if (!record) throw new Error('mindmap not found')
+  return `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。\n\n当前标题：${record.title}\n当前脑图 Markdown：\n${mindmapToMarkdown(record.current.root)}\n\n最多节点：${record.config.maxNodes}\n附加要求：${instruction?.trim() || record.config.instruction || '保持原主题和层级信息，必要时改善结构。'}`
+}
+
+function optionalService<T>(ctx: PluginContext, name: string): T | undefined { return (ctx as PluginContext & { reflect?: { get(name: string, strict?: boolean): T | undefined } }).reflect?.get(name, true) }
+
+function startPanelRegeneration(ctx: PluginContext, libraryId: string, input: RegenerateInput, panelRuns: Map<string, PanelRun>, activeByLibrary: Map<string, string>): PanelRunView {
+  if (activeByLibrary.has(libraryId)) throw new InputError('该脑图正在重新生成，请等待或取消当前任务', 409)
+  const agents = optionalService<AgentRegistry>(ctx, 'agents')
+  const runtime = optionalService<SubagentRuntime>(ctx, 'subagents')
+  const parent = agents?.get(input.sessionId)
+  if (!parent || !runtime?.getProvider('fork')) throw new InputError('当前会话不支持 fork 子代理重新生成', 503)
+  const runId = `panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  const controller = new AbortController()
+  const panelRun: PanelRun = { runId, libraryId, status: 'running', detail: '正在由 fork 子代理整理脑图大纲…', controller }
+  panelRuns.set(runId, panelRun)
+  activeByLibrary.set(libraryId, runId)
+  const timeout = windowOrGlobalTimeout(() => controller.abort(), PANEL_RUN_TIMEOUT_MS)
+  void (async () => {
+    try {
+      const record = await getMindmap(libraryId)
+      if (!record) throw new Error('mindmap not found')
+      const run = await runtime.start('fork', { label: `重新构建脑图：${record.title}`, prompt: [{ type: 'text', text: regenerationPrompt(record, input.instruction) }], parent, signal: controller.signal, outputSchema: OUTLINE_SCHEMA, maxDepth: 1, toolFilter: { allow: [] }, persona: '只把给定脑图内容整理为严格 Markdown 层级大纲。不得调用任何工具、技能、子代理或外部服务；不要解释过程。' })
+      panelRun.run = run
+      const result = await run.result
+      if (controller.signal.aborted) { panelRun.status = 'cancelled'; panelRun.detail = '已取消重新生成'; return }
+      if (result.stopReason !== 'completed') throw new Error(result.diagnostic || '子代理未完成重新生成')
+      const outline = asOutline(result.structured)
+      const document = buildMindmapFromOutline(outline.outline, outline.title, { maxNodes: record.config.maxNodes, contextLimit: record.config.contextLimit, maxChildren: record.config.maxNodes > 360 ? 100 : undefined, maxDepth: record.config.maxNodes > 360 ? 12 : undefined })
+      const saved = await saveMindmap({ libraryId, title: outline.title, document, config: record.config, source: record.source, expectedUpdatedAt: input.expectedUpdatedAt })
+      panelRun.status = 'completed'; panelRun.detail = `重新生成完成：${countMindmapNodes(saved.current.root)} 个节点`; panelRun.revisionId = revisionIdOf(saved.current)
+    } catch (error) {
+      panelRun.status = controller.signal.aborted ? 'cancelled' : 'failed'
+      panelRun.detail = controller.signal.aborted ? '已取消重新生成' : error instanceof Error ? error.message : '重新生成失败'
+    } finally {
+      clearTimeout(timeout)
+      await panelRun.run?.dispose().catch(() => undefined)
+      activeByLibrary.delete(libraryId)
+    }
+  })()
+  return { runId: panelRun.runId, libraryId: panelRun.libraryId, status: panelRun.status, detail: panelRun.detail }
+}
+
+function windowOrGlobalTimeout(callback: () => void, milliseconds: number): ReturnType<typeof setTimeout> { return setTimeout(callback, milliseconds) }
 
 async function presentResult(args: PresentInput): Promise<{ libraryId: string; revisionId: string; title: string; nodeCount: number; state: 'available' | 'expired'; capabilityNote: string }> {
   const record = await getMindmap(args.libraryId)
@@ -313,6 +392,8 @@ function presentContent(value: { libraryId?: string; revisionId?: string; title?
 }
 
 export function apply(ctx: PluginContext): void {
+  const panelRuns = new Map<string, PanelRun>()
+  const activeByLibrary = new Map<string, string>()
   const generate = defineTool({
     name: 'generate_chat_mindmap',
     description: 'Convert agent-provided chat context into a structured editable mind map. Pass the relevant conversation text or a Markdown outline; do not pass secrets that should not be summarized.',
@@ -356,7 +437,32 @@ export function apply(ctx: PluginContext): void {
       try {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1')
         if (req.method === 'GET' && url.pathname.endsWith('/health')) {
-          writeJson(res, 200, { ok: true, plugin: name, version: 2, capabilities: { jobs: false, subagents: false, settings: false, localGeneration: true, svgPreview: true }, capabilityNote: CAPABILITY_NOTE })
+          const agents = optionalService<AgentRegistry>(ctx, 'agents')
+          const subagents = optionalService<SubagentRuntime>(ctx, 'subagents')
+          const fork = Boolean(subagents?.getProvider('fork'))
+          writeJson(res, 200, { ok: true, plugin: name, version: 3, capabilities: { jobs: false, subagents: fork, panelForkRegeneration: Boolean(agents && fork), settings: false, localGeneration: true, svgPreview: true }, capabilityNote: CAPABILITY_NOTE })
+          return
+        }
+        const regenerateMatch = /\/maps\/([^/]+)\/regenerate$/.exec(url.pathname)
+        if (regenerateMatch && req.method === 'POST') {
+          const input = parseRegenerateInput(await readJsonBody(req))
+          const libraryId = decodeId(regenerateMatch[1]!)
+          if (!await getMindmap(libraryId)) { writeJson(res, 404, { ok: false, error: 'mindmap not found' }); return }
+          writeJson(res, 202, { ok: true, value: startPanelRegeneration(ctx, libraryId, input, panelRuns, activeByLibrary) })
+          return
+        }
+        const panelRunMatch = /\/panel-runs\/([^/]+)$/.exec(url.pathname)
+        if (panelRunMatch && req.method === 'GET') {
+          const run = panelRuns.get(decodeId(panelRunMatch[1]!))
+          if (!run) { writeJson(res, 404, { ok: false, error: 'panel run not found' }); return }
+          writeJson(res, 200, { ok: true, value: { runId: run.runId, libraryId: run.libraryId, status: run.status, detail: run.detail, ...(run.revisionId ? { revisionId: run.revisionId } : {}) } satisfies PanelRunView })
+          return
+        }
+        if (panelRunMatch && req.method === 'DELETE') {
+          const run = panelRuns.get(decodeId(panelRunMatch[1]!))
+          if (!run) { writeJson(res, 404, { ok: false, error: 'panel run not found' }); return }
+          if (run.status === 'running') run.controller.abort()
+          writeJson(res, 200, { ok: true, value: { runId: run.runId, status: run.status } })
           return
         }
         if (req.method === 'GET' && url.pathname.endsWith('/maps')) {

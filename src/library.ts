@@ -241,10 +241,12 @@ export async function saveMindmap(input: {
   source?: MindmapSource
   archived?: boolean
   rotatePrevious?: boolean
+  expectedUpdatedAt?: string
 }): Promise<MindmapRecord> {
   return enqueueWrite(async () => {
     const id = input.libraryId ? safeId(input.libraryId) : uid()
     const existing = await readRecord(id)
+    if (input.expectedUpdatedAt && existing?.updatedAt !== input.expectedUpdatedAt) throw new Error('mindmap conflict')
     const config = normalizeConfig({ ...existing?.config, ...input.config })
     const document = validateMindmapDocument(input.document, { maxNodes: config.maxNodes, maxDepth: 32 })
     const now = new Date().toISOString()

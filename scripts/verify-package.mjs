@@ -17,6 +17,7 @@ assert.match(clientSource, /window\.open\('', '_blank'\)/)
 assert.match(clientSource, /requestFullscreen/)
 assert.match(clientSource, /exitFullscreen/)
 assert.match(clientSource, /runCanvasTask/)
+assert.match(clientSource, /task\(\)[\s\S]*await nextPaint\(\)/)
 assert.match(clientSource, /aria-busy/)
 assert.match(clientSource, /正在渲染脑图/)
 assert.match(clientSource, /更多操作/)
@@ -25,6 +26,10 @@ assert.match(clientSource, /外观 · \$\{LAYOUT_OPTIONS/)
 assert.match(clientSource, /PROGRESSIVE_RENDER_THRESHOLD = 180/)
 assert.match(clientSource, /toRenderNode/)
 assert.match(clientSource, /key: `\$\{record\.libraryId\}:\$\{record\.current\.source\.generatedAt\}`/)
+assert.match(clientSource, /\/maps\/\$\{encodeURIComponent\(record\.libraryId\)\}\/regenerate/)
+assert.match(clientSource, /Fork 子代理运行中/)
+assert.doesNotMatch(clientSource, /inputActions\.setDraft/)
+assert.match(clientSource, /cancelRegenerate/)
 
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const useShell = process.platform === 'win32'

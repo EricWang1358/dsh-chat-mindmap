@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildMindmap } from '../lib/core.js'
-import { saveMindmap } from '../lib/library.js'
+import { getMindmap, saveMindmap } from '../lib/library.js'
 import { revisionIdOf } from '../lib/revisions.js'
 import { apply } from '../lib/index.js'
 
@@ -37,8 +37,16 @@ const root = await mkdtemp(join(tmpdir(), 'dsh-chat-http-'))
 process.env.DSH_MINDMAP_HOME = root
 try {
   let handler
+  const fakeParent = { id: 'session-active' }
+  let forkStarts = 0
   const ctx = {
     tools: { register() {} },
+    agents: { get(id) { return id === fakeParent.id ? fakeParent : undefined } },
+    subagents: {
+      getProvider(name) { return name === 'fork' ? {} : undefined },
+      async start(name, request) { forkStarts += 1; assert.equal(name, 'fork'); assert.equal(request.parent, fakeParent); assert.deepEqual(request.toolFilter, { allow: [] }); return { id: 'child-1', result: Promise.resolve({ stopReason: 'completed', structured: { title: 'Forked', outline: '# Forked\n## Child' } }), async dispose() {} } },
+    },
+    reflect: { get(name) { return ctx[name] } },
     webServer: { register(route) { handler = route.handler; return () => {} } },
     effect(callback) { return callback() },
   }
@@ -85,6 +93,16 @@ try {
 
   const expiredPreview = await request('', `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/rev-000000000000000000000000`, 'GET')
   assert.equal(expiredPreview.status, 410)
+
+  const regeneration = await request(JSON.stringify({ sessionId: fakeParent.id, expectedUpdatedAt: saved.updatedAt }), `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/regenerate`)
+  assert.equal(regeneration.status, 202)
+  assert.equal(regeneration.payload.value.status, 'running')
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  const run = await request('', `/@dsh-external/dsh-chat-mindmap/panel-runs/${regeneration.payload.value.runId}`, 'GET')
+  assert.equal(forkStarts, 1)
+  assert.equal(run.status, 200)
+  assert.equal(run.payload.value.status, 'completed')
+  assert.equal((await getMindmap(saved.libraryId)).current.title, 'Forked')
 } finally {
   await rm(root, { recursive: true, force: true })
 }

@@ -200,6 +200,16 @@ export function buildMindmap(context: string, title = '', options?: MindmapBuild
   }
 }
 
+export function buildMindmapFromOutline(outline: string, title = '', options?: MindmapBuildOptions): MindmapDocument {
+  const limits = limitsFrom(options)
+  const bounded = String(outline ?? '').slice(0, limits.contextLimit)
+  const cleanTitle = cleanText(String(title ?? '')).slice(0, MAX_TITLE_LENGTH) || '聊天记录思维导图'
+  const parseLimits: ParseLimits = { maxNodes: limits.maxNodes, maxDepth: limits.maxDepth, maxChildren: limits.maxChildren, nodeCount: 0 }
+  const root = parseMarkdownOutline(bounded, cleanTitle, parseLimits)
+  if (!root || !root.children?.length) throw new Error('invalid Markdown outline')
+  return { version: 1, title: root.title, root, source: { kind: 'agent-context', characters: bounded.length, generatedAt: new Date().toISOString() } }
+}
+
 export function countMindmapNodes(node: MindmapNode): number {
   let count = 0
   const pending: MindmapNode[] = [node]
