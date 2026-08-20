@@ -93,6 +93,7 @@ const clientSource = await readFile(join(root, 'src', 'client', 'index.ts'), 'ut
 assert.match(clientSource, /tool\.call\.toolview/)
 assert.match(clientSource, /callId|content/)
 pass('G0-4', '工具卡 replay-safe 数据形态', 'The plugin uses rc8 public client package exports and its renderer reads durable tool result content; no private DSH UI module is imported.', 'public-contract+plugin-source')
+const previewPrefix = 'dsh-chat-mindmap-preview:'
 const replayResult = {
   kind: 'tool-result',
   seq: 41,
@@ -100,7 +101,7 @@ const replayResult = {
   callId: 'mindmap-present-1',
   call: null,
   callTime: null,
-  content: [{ type: 'text', text: JSON.stringify({ libraryId: 'map-1', revision: 2 }) }],
+  content: [{ type: 'text', text: `${previewPrefix}${JSON.stringify({ libraryId: 'map-1', revisionId: 'rev-0123456789abcdef01234567', title: 'Replay map', nodeCount: 2, state: 'available' })}` }],
   isError: false,
   callView: null,
   resultView: null,
@@ -109,19 +110,18 @@ const replayResult = {
 const replayWire = JSON.parse(JSON.stringify(replayResult))
 assert.equal(replayWire.callId, replayResult.callId)
 assert.equal(replayWire.call, null)
-assert.match(replayWire.content[0].text, /map-1/)
-const renderCard = (block) => ({ reference: JSON.parse(block.content[0].text).libraryId, expired: block.call === null })
-assert.deepEqual(renderCard(replayWire), { reference: 'map-1', expired: true })
+const replayPayload = JSON.parse(replayWire.content[0].text.slice(previewPrefix.length))
+assert.deepEqual(replayPayload, { libraryId: 'map-1', revisionId: 'rev-0123456789abcdef01234567', title: 'Replay map', nodeCount: 2, state: 'available' })
 const fullWindow = [
-  { seq: 40, type: 'tool/call', data: { callId: replayResult.callId, name: 'present_mindmap' } },
+  { seq: 40, type: 'tool/call', data: { callId: replayResult.callId, name: 'present_chat_mindmap' } },
   { seq: replayResult.seq, type: 'tool/result', data: replayResult },
 ]
 const historyWindow = fullWindow.filter((event) => event.type !== 'tool/call')
 assert.equal(historyWindow[0].data.callId, replayResult.callId)
 assert.equal(historyWindow[0].data.call, null)
-assert.equal(historyWindow[0].data.content.length, 1)
-pass('G0-4-fixture', '工具卡裁剪后 reload replay fixture', 'A serialized ToolResultNode with call=null round-trips unchanged and a renderer can recover the durable library reference without requiring the call head; an explicit history-window cut preserves callId and content.', 'runtime-fixture')
-pending('G0-4-live', '工具卡 live/reload/call-head 裁剪重放', 'Requires browser GUI evidence across live render, HMR/reload, and a history window where the call head is absent. The current implementation has no renderer yet, so this is intentionally not claimed.')
+assert.equal(historyWindow[0].data.content[0].text, replayResult.content[0].text)
+pass('G0-4-fixture', '工具卡裁剪后 reload replay fixture', 'A serialized ToolResultNode with call=null preserves its stable callId and the exact production dsh-chat-mindmap-preview payload; the renderer can recover libraryId plus immutable revisionId without the call head.', 'runtime-fixture')
+pending('G0-4-live', '工具卡 live/reload/call-head 裁剪重放', 'Requires browser GUI evidence across live render, HMR/reload, and a history window where the call head is absent. A production renderer and immutable revision resolver exist; this browser-only proof is intentionally not claimed.')
 
 const exportSource = await readFile(exportFile, 'utf8')
 const attachmentMeta = JSON.parse(await readFile(attachmentPackage, 'utf8'))

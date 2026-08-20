@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { gunzipSync } from 'node:zlib'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +21,7 @@ assert.match(clientSource, /runCanvasTask/)
 assert.match(clientSource, /task\(\)[\s\S]*await nextPaint\(\)/)
 assert.match(clientSource, /aria-busy/)
 assert.match(clientSource, /正在渲染脑图/)
-assert.match(clientSource, /更多操作/)
+assert.match(clientSource, /···/)
 assert.match(clientSource, /gridTemplateColumns: '228px minmax\(0,1fr\)'/)
 assert.match(clientSource, /position: 'absolute', top: '16px', right: '16px', bottom: '16px'/)
 assert.match(clientSource, /width: 'min\(300px, calc\(100% - 276px\)\)'/)
@@ -40,7 +41,7 @@ assert.match(clientSource, /\/maps\/\$\{encodeURIComponent\(record\.libraryId\)\
 assert.match(clientSource, /Fork 子代理运行中/)
 assert.doesNotMatch(clientSource, /inputActions\.setDraft/)
 assert.match(clientSource, /cancelRegenerate/)
-assert.match(clientSource, /重新生成备注/)
+assert.match(clientSource, /instruction\.trim\(\)/)
 assert.match(clientSource, /附带 \$\{note\.length\} 字备注/)
 assert.match(clientSource, /useCallback/)
 assert.match(clientSource, /galleryRequestRef/)
@@ -49,6 +50,11 @@ assert.match(clientSource, /重试/)
 assert.match(clientSource, /节点属性/)
 assert.match(clientSource, /节点备注/)
 assert.match(clientSource, /node_active/)
+assert.match(clientSource, /ResizeObserver\(/)
+assert.match(clientSource, /requestAnimationFrame\(\(\) => \{[\s\S]*mapRef\.current\?\.resize\(\)/)
+assert.match(clientSource, /flex: '1 1 0'/)
+assert.match(clientSource, /ref: canvasRef, style: \{ position: 'absolute', inset: 0, minWidth: 0, minHeight: 0 \}/)
+
 const hostSource = await readFile(join(root, 'src', 'index.ts'), 'utf8')
 assert.match(hostSource, /injectOptional\?\.\(\['agents', 'subagents'\]/)
 assert.match(hostSource, /SubagentRun, SubagentRuntime/)
@@ -59,11 +65,29 @@ assert.match(hostSource, /libraryId=\$\{value\.libraryId\} revisionId=\$\{value\
 assert.match(hostSource, /Call present_chat_mindmap with libraryId and revisionId/)
 
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const useShell = process.platform === 'win32'
-const packs = JSON.parse(execFileSync(npmBin, ['pack', '--json'], { cwd: root, encoding: 'utf8', shell: useShell }))
-const pack = packs[0]
-assert.equal(typeof pack?.filename, 'string')
-const published = new Set(pack.files.map((file) => file.path))
+const filename = `${packageJson.name.replace(/^@/, '').replace('/', '-')}-${packageJson.version}.tgz`
+const tarball = join(root, filename)
+// Use inherited stdio: confined Windows cannot open the pipe used by the old
+// capture-based npm-pack implementation, while npm itself still does the real
+// packaging work. The deterministic npm filename is then inspected directly.
+execFileSync(npmBin, ['pack'], {
+  cwd: root,
+  shell: process.platform === 'win32',
+  stdio: 'inherit',
+  env: { ...process.env, npm_config_cache: join(root, '.npm-cache'), npm_config_update_notifier: 'false' },
+})
+const tar = gunzipSync(await readFile(tarball))
+const published = new Set()
+for (let offset = 0; offset + 512 <= tar.length;) {
+  const header = tar.subarray(offset, offset + 512)
+  const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '')
+  if (!name) break
+  const prefix = header.subarray(345, 500).toString('utf8').replace(/\0.*$/, '')
+  const rawSize = header.subarray(124, 136).toString('utf8').replace(/\0.*$/, '').trim()
+  const size = rawSize ? Number.parseInt(rawSize, 8) : 0
+  published.add((prefix ? `${prefix}/` : '') + name.replace(/^package\//, ''))
+  offset += 512 + Math.ceil(size / 512) * 512
+}
 for (const required of [
   'package.json',
   'lib/index.js',
@@ -75,5 +99,5 @@ for (const required of [
 // DSH supplies the package's Host/UI services as peers. Import behavior is
 // covered by project tests against the real local DSH graph; a bare npm temp
 // project has no equivalent composition and is not a meaningful install target.
-await rm(join(root, pack.filename), { force: true })
+await rm(tarball, { force: true })
 console.log('package verification passed')

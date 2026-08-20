@@ -82,7 +82,9 @@ try {
   const created = await request(JSON.stringify({ title: 'Created', document: buildMindmap('# Created\n## Child'), config: { maxNodes: 1000 } }), '/@dsh-external/dsh-chat-mindmap/maps', 'POST')
   assert.equal(created.status, 201)
   assert.equal(created.payload.value.config.maxNodes, 1000)
-  const saved = await saveMindmap({ title: 'Patch', document: buildMindmap('# Patch\n## Child') })
+  const patchDocument = buildMindmap('# Patch\n## Child')
+  patchDocument.root.children[0].note = '子节点要覆盖边界案例，并保留练习题。'
+  const saved = await saveMindmap({ title: 'Patch', document: patchDocument })
   const invalidPatch = await request(JSON.stringify({ document: { version: 1 } }), `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}`, 'PATCH')
   assert.equal(invalidPatch.status, 400)
 
@@ -91,7 +93,6 @@ try {
   assert.equal(preview.status, 200)
   assert.equal(preview.payload.value.revisionId, revisionId)
   assert.equal(preview.payload.value.document.title, 'Patch')
-
   const expiredPreview = await request('', `/@dsh-external/dsh-chat-mindmap/maps/${saved.libraryId}/revisions/rev-000000000000000000000000`, 'GET')
   assert.equal(expiredPreview.status, 410)
 
@@ -102,13 +103,13 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 25))
   const run = await request('', `/@dsh-external/dsh-chat-mindmap/panel-runs/${regeneration.payload.value.runId}`, 'GET')
   assert.equal(forkStarts, 1)
-  assert.equal(forkPrompt, `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。\n\n当前标题：Patch\n当前脑图 Markdown：\n# Patch\n## Child\n\n最多节点：360\n\n<panel-note>\n${note}\n</panel-note>\n\n如果没有 panel-note，则保持原主题和层级信息，必要时改善结构。`)
+  assert.equal(forkPrompt, `将下面已有脑图转换为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。不要调用工具，不要解释过程，不要编造来源。节点备注是附加参考：应吸收其事实、范围和约束，但绝不能把备注文字当作节点标题逐字输出。\n\n当前标题：Patch\n当前脑图 Markdown：\n# Patch\n## Child\n\n<node-notes format="json">\n[${JSON.stringify({ id: patchDocument.root.children[0].id, path: 'Patch > Child', note: '子节点要覆盖边界案例，并保留练习题。' })}]\n</node-notes>\n\n最多节点：360\n\n<panel-note>\n${note}\n</panel-note>\n\n如果没有 panel-note，则保持原主题和层级信息，必要时改善结构。`)
   assert.equal(run.payload.value.noteLength, [...note].length)
   assert.match(run.payload.value.detail, /重新生成完成：2 个节点/)
   assert.equal(run.status, 200)
   assert.equal(run.payload.value.status, 'completed')
   assert.equal(run.payload.value.childId, 'child-1')
-  assert.equal((await getMindmap(saved.libraryId)).current.title, 'Forked')
+   assert.equal((await getMindmap(saved.libraryId)).current.title, 'Forked')
 } finally {
   await rm(root, { recursive: true, force: true })
 }

@@ -65,7 +65,6 @@ const MAX_TITLE_LENGTH = 120
 const MAX_SOURCE_STRING_LENGTH = 500
 const MAX_METADATA_ENTRIES = 32
 const MAX_METADATA_VALUE_LENGTH = 500
-
 function rootPath(): string {
   return process.env.DSH_MINDMAP_HOME || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'chat-mindmap')
 }
@@ -182,12 +181,13 @@ function validateMindmapRecord(value: unknown, expectedId: string, path: string)
   }
   const current = validateMindmapDocument(value.current, { maxNodes: 2_000, maxDepth: 32 })
   const previous = typeof value.previous === 'undefined' ? undefined : validateMindmapDocument(value.previous, { maxNodes: 2_000, maxDepth: 32 })
+  const config = normalizeConfig(value.config)
   const record: MindmapRecord = {
     libraryId: expectedId,
     title: value.title,
     current,
     ...(previous ? { previous } : {}),
-    config: normalizeConfig(value.config),
+    config,
     ...(value.source ? { source: normalizeSource(value.source) } : {}),
     ...(value.archived ? { archived: true } : {}),
     createdAt: value.createdAt,
