@@ -36,6 +36,12 @@ The **脑图** tab is not a sidebar and does not permanently occupy the composer
 - **Source boundary:** Agent reads attachments and supplies extracted text plus source metadata; the plugin does not retain source text by default
 - **Regeneration:** the UI prepares a bounded prompt in the current DSH input, including `libraryId`, current edited tree, source metadata, and configuration; Agent re-reads/re-supplies the source and calls the tool again
 
+## Project overview example
+
+The diagram below is a real project-outline example. Its editable Markdown source is [`docs/assets/project-overview-mindmap.md`](docs/assets/project-overview-mindmap.md); paste it into **脑图 → 新建** to create and edit the same map.
+
+![DSH Chat Mindmap project overview](docs/assets/project-overview-mindmap.svg)
+
 ## Install / build
 
 There are three different installation modes. **Do not use `dev_inject_plugin` for a normal installation**: it is a temporary live injection and is intentionally lost after DSH restarts.

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Node ${{ matrix.node }} verification
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # tsdown 0.22 declares Node ^22.18.0 or >=24.11.0; test the supported LTS line.
+        node: ['22.18.0']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Compile declarations
+        run: npx tsc -p tsconfig.json
+
+      - name: Bundle client
+        run: npx tsdown
+
+      - name: Test core, library, and HTTP behavior
+        run: npm test
+
+      - name: Verify publishable package
+        run: npm run verify:package
+
+      - name: Enforce browser bundle budget
+        run: npm run verify:bundle
+
+      # Gate 0 also checks the machine-installed DSH distribution and its
+      # fork/tool-jobs contracts, so it remains a required local DSH check.
+      # A clean GitHub runner intentionally does not fabricate that host graph.
