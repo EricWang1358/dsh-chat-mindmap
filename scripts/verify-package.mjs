@@ -36,6 +36,8 @@ assert.match(hostSource, /SubagentRun, SubagentRuntime/)
 assert.match(hostSource, /runtime\.start\('fork'/)
 assert.match(hostSource, /childId = run\.id/)
 assert.doesNotMatch(hostSource, /reflect\?\.get/)
+assert.match(hostSource, /libraryId=\$\{value\.libraryId\} revisionId=\$\{value\.revisionId\}/)
+assert.match(hostSource, /Call present_chat_mindmap with libraryId and revisionId/)
 
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const useShell = process.platform === 'win32'
