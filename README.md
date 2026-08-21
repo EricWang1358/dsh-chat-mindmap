@@ -54,7 +54,7 @@ There are three different installation modes. **Do not use `dev_inject_plugin` f
 Install the published package persistently:
 
 ```powershell
-dsh plugin --profile web add @ericwang1358/dsh-chat-mindmap@0.1.3
+dsh plugin --profile web add @ericwang1358/dsh-chat-mindmap@0.1.4
 ```
 
 `dsh plugin` forwards to pnpm, writes the dependency into `~/.dsh/profiles/web/package.json`, adds the package to `dsh.profile.bundles`, and makes it survive restart. Then restart the DSH Web profile:
@@ -67,13 +67,13 @@ If the package is published under a different scope/name, replace the package sp
 
 ### B. End user: GitHub Release tarball (current recommended path)
 
-Download the release asset from [GitHub Release v0.1.3](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.3), then install it persistently:
+Download the release asset from [GitHub Release v0.1.4](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.4), then install it persistently:
 
 ```powershell
-dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.3.tgz
+dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.4.tgz
 ```
 
-`v0.1.3` was published to npm on 2026-08-21 (China Standard Time). npm registry propagation and plugin-list indexing can take up to 24 hours after publication; if `@ericwang1358/dsh-chat-mindmap@0.1.3` is not yet available through npm, download the `ericwang1358-dsh-chat-mindmap-0.1.3.tgz` asset directly from this release page and use the command above.
+`v0.1.4` was published to npm on 2026-08-21 (China Standard Time). npm registry propagation and plugin-list indexing can take up to 24 hours after publication; if `@ericwang1358/dsh-chat-mindmap@0.1.4` is not yet available through npm, download the `ericwang1358-dsh-chat-mindmap-0.1.4.tgz` asset directly from this release page and use the command above.
 
 ### C. End user: GitHub repository
 
@@ -96,7 +96,7 @@ npm pack
 Then copy the generated `.tgz` to the target machine and install it persistently. On Windows, use a `file:` URL with forward slashes or an absolute tarball path:
 
 ```powershell
-dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.3.tgz
+dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.4.tgz
 # equivalent: dsh plugin --profile web add C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.1.tgz
 ```
 
