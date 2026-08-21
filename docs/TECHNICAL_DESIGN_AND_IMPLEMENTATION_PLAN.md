@@ -718,6 +718,32 @@ rc8 适配结论：官方 `ImageLightbox` 不在公开导出面，因此第 5 �
 
 验收门：client tests、键盘操作、窄屏、字典完整性通过；无 setDraft 重建路径。
 
+### Phase 4.5 — 结构化导出与学习闭环（0.2.x 新增）
+
+建议修改：
+
+- `src/domain/mindmap-doc.ts`
+- `src/host/export/*`
+- `src/client/export/*`
+- `tests/export/*`
+
+吸收参考项目 `chenw2759-wq/dsh-mindmap` 的可取能力：
+
+- 将脑图先规范化为可校验的 `MindmapDoc`（分支、分组、条目、子条目、来源）；
+- A3 横向打印 HTML，每个主干分页，封面/目录、右侧笔记区和可解释的溢出报告；
+- classic / minimal / creative / academic 风格预设；
+- 可选题目页（选择、判断、填空、简答），题目绑定知识点、答案、解析和易错点；
+- `mindmap-builder` 方法 skill，固化“来源提取 → 知识组织 → 渲染 → 溢出修正”的工作流。
+
+强制安全与产品边界：
+
+- 导出器必须 HTML-escape 文本和属性；禁止把 Agent 输出直接拼进 `innerHTML`；
+- 生成 HTML 必须自包含，不依赖 dsh-IDE、CDN 或外部网络；dsh-IDE 只能作为可选预览器；
+- 题目必须 schema 校验、答案一致性校验并保留节点来源，导出前先预览；
+- 性能验收覆盖至少 100 个主干、每主干 50 个条目，并分别记录预算估算和真实打印渲染结果。
+
+验收门：fixture golden HTML、HTML sanitizer/security tests、quiz schema tests、A3 print smoke 和浏览器截图证据通过。
+
 ### Phase 5 — Packaging、Compatibility、Release QA
 
 交付：

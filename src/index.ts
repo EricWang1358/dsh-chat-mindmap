@@ -479,9 +479,9 @@ export function apply(ctx: PluginContext): void {
 
   ctx.effect(() => ctx.tools.register(generate), 'chat-mindmap: generate_chat_mindmap')
   ctx.effect(() => ctx.tools.register(present), 'chat-mindmap: present_chat_mindmap')
-  ctx.effect(() => ctx.webServer.register({
+  const unregisterApi = (path: string) => ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
-    path: '/@ericwang1358/dsh-chat-mindmap',
+    path,
     handler: async (req, res) => {
       const securityError = requestSecurityError(req)
       if (securityError) { writeJson(res, securityError.status, { ok: false, error: securityError.message }); return }
@@ -578,6 +578,8 @@ export function apply(ctx: PluginContext): void {
       }
     },
   }), 'chat-mindmap: HTTP API')
+  unregisterApi('/@ericwang1358/dsh-chat-mindmap')
+  unregisterApi('/@dsh-external/dsh-chat-mindmap')
 }
 
 export { buildMindmap }

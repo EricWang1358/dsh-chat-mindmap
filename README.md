@@ -67,11 +67,13 @@ If the package is published under a different scope/name, replace the package sp
 
 ### B. End user: GitHub Release tarball (current recommended path)
 
-For the current hardening release, download the release asset from [GitHub Release v0.1.2](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.2), then install it persistently:
+Download the release asset from [GitHub Release v0.1.3](https://github.com/EricWang1358/dsh-chat-mindmap/releases/tag/v0.1.3), then install it persistently:
 
 ```powershell
 dsh plugin --profile web add file:C:/path/to/ericwang1358-dsh-chat-mindmap-0.1.3.tgz
 ```
+
+`v0.1.3` was published to npm on 2026-08-21 (China Standard Time). npm registry propagation and plugin-list indexing can take up to 24 hours after publication; if `@ericwang1358/dsh-chat-mindmap@0.1.3` is not yet available through npm, download the `ericwang1358-dsh-chat-mindmap-0.1.3.tgz` asset directly from this release page and use the command above.
 
 ### C. End user: GitHub repository
 
