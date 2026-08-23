@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { countMindmapNodes, validateMindmapDocument, type MindmapDocument } from './core.js'
+import { DEFAULT_MINDMAP_CONFIG as DEFAULT_CONFIG } from './domain/settings.js'
 
 export interface MindmapConfig {
   layout: string
@@ -50,17 +51,7 @@ export interface MindmapSummary {
 
 let writeQueue: Promise<void> = Promise.resolve()
 
-export const DEFAULT_CONFIG: MindmapConfig = {
-  layout: 'logicalStructure',
-  density: 'standard',
-  maxNodes: 360,
-  theme: 'default',
-  font: 'system',
-  instruction: '',
-  language: 'auto',
-  contextLimit: 80_000,
-}
-
+export { DEFAULT_MINDMAP_CONFIG as DEFAULT_CONFIG } from './domain/settings.js'
 const MAX_TITLE_LENGTH = 120
 const MAX_SOURCE_STRING_LENGTH = 500
 const MAX_METADATA_ENTRIES = 32
