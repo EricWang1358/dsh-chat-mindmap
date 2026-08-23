@@ -98,7 +98,7 @@ assert.deepEqual(resolveNewRecordConfig(custom, mergedRequest), merged)
 console.log('domain settings tests passed')
 
 import { normalizeWorkspaceCwd, workspaceKeyOf } from '../lib/domain/records.js'
-import { buildMindmap } from '../lib/core.js'
+import { buildMindmap, countMindmapNodes, flattenNode, validateMindmapDocument } from '../lib/core.js'
 
 const winVariants = ['D:\\A\\Dir', 'd:\\a\\dir', 'D:/A/Dir/', '\\\\?\\D:\\A\\Dir', 'D:\\\\A\\\\Dir']
 const winNormalized = new Set(winVariants.map((sample) => normalizeWorkspaceCwd(sample, 'win32')))
@@ -208,3 +208,45 @@ assert.equal(swappedBack.previous, docs.B)
 assert.throws(() => swapCurrentPrevious({ ...generationThree, previous: undefined }), /no previous/)
 
 console.log('domain records rotation tests passed')
+
+import { buildStrictOutlineDocument, validateAgentOutlineResult } from '../lib/domain/generation.js'
+
+assert.deepEqual(validateAgentOutlineResult({ title: ' T ', outline: ' # R\n## C ' }), { title: 'T', outline: '# R\n## C' })
+for (const bad of [
+  { title: '', outline: '# R\n## C' },
+  { title: '   ', outline: '# R\n## C' },
+  { title: 'x'.repeat(121), outline: '# R\n## C' },
+  { title: 'T', outline: '' },
+  { title: 'T', outline: '   ' },
+  { title: 'T', outline: 'x'.repeat(200_001) },
+  { title: 'T', outline: '# Only root' },
+  { title: 'T', outline: '# A\n- bullet only' },
+  null,
+  { title: 7, outline: '# R\n## C' },
+]) {
+  assert.throws(() => validateAgentOutlineResult(bad), /INVALID_AGENT_OUTLINE|outline|title/, JSON.stringify(bad))
+}
+
+const strict = buildStrictOutlineDocument({ title: 'Strict', outline: '# Strict\n## Child' })
+assert.equal(strict.document.title, 'Strict')
+assert.equal(strict.truncated, false)
+assert.doesNotThrow(() => validateMindmapDocument(strict.document))
+
+const jump = buildStrictOutlineDocument({ title: 'Jump', outline: '# R\n### X\n## Y' })
+const jumpTitles = flattenNode(jump.document.root).map((entry) => entry.title)
+assert.ok(jumpTitles.includes('X') && jumpTitles.includes('Y'), 'level jump must not lose nodes')
+assert.equal(jump.document.root.children?.length, 2)
+
+const overflowing = buildStrictOutlineDocument({ title: 'Cap', outline: '# Cap\n## b\n## c\n## d\n## e' }, { maxNodes: 3 })
+assert.equal(overflowing.truncated, true)
+assert.ok(countMindmapNodes(overflowing.document.root) <= 3)
+
+const transcriptOnly = () => buildStrictOutlineDocument({ title: 'Bad', outline: 'plain transcript without headings' })
+assert.throws(transcriptOnly, DomainError)
+try {
+  transcriptOnly()
+} catch (error) {
+  assert.equal(error.code, 'INVALID_AGENT_OUTLINE')
+}
+
+console.log('domain generation tests passed')
