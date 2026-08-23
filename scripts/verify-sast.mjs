@@ -30,6 +30,14 @@ const files = [
   'src/client/components/blob-url-lru.ts',
   'src/client/components/MindmapToolCard.tsx',
   'src/client/preview/dialog.tsx',
+  // S4 additions (W7): assembled host + componentized client + i18n.
+  'src/client/api.ts',
+  'src/client/locale.ts',
+  'src/client/canvas-theme.ts',
+  'src/client/components/BrainmapView.tsx',
+  'src/client/components/MindmapSettingsCard.tsx',
+  'src/client/components/ui/primitives.tsx',
+  'src/client/preview/artifact-html.ts',
 ].map((file) => join(root, file)).filter((file) => existsSync(file))
 assert.ok(files.length >= 4, 'SAST scan list must not be empty')
 const source = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n')
