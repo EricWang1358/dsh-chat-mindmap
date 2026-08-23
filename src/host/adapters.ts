@@ -71,12 +71,26 @@ export interface PanelStartInput {
 export function createPanelGenerationAdapter(deps: PanelAdapterDeps) {
   let sequence = 0
   return {
-    async start(input: PanelStartInput): Promise<PanelRunView> {
+    /**
+     * S4-W1 (D-S4-1): §11 requires POST /maps/:id/regenerate to answer with a
+     * runId immediately so the client can poll and cancel. begin() hands back
+     * the synchronously registered view plus the completion promise; start()
+     * keeps the S2 golden contract of awaiting full settlement.
+     */
+    begin(input: PanelStartInput): { view: PanelRunView; done: Promise<PanelRunView> } {
       const runId = `panel-${Date.now().toString(36)}-${(++sequence).toString(36)}-${randomUUID().replaceAll('-','').slice(0,8)}`
       const entry = deps.locks.tryAcquire(input.libraryId, runId)
       if (!entry) throw new DomainError('MINDMAP_BUSY', 'a generation for this mindmap is already running')
       const controller = input.controller ?? new AbortController()
       const view = deps.registry.register({ runId, libraryId: input.libraryId, status: 'accepted', detail: '' }, controller)
+      const done = this.settle(input, runId, view, controller)
+      deps.registry.trackCompletion(done)
+      return { view, done }
+    },
+    async start(input: PanelStartInput): Promise<PanelRunView> {
+      return this.begin(input).done
+    },
+    settle(input: PanelStartInput, runId: string, view: PanelRunView, controller: AbortController): Promise<PanelRunView> {
       const work = (async (): Promise<PanelRunView> => {
         try {
           const source = await deps.promptSourceOf(input.libraryId)
@@ -110,7 +124,6 @@ export function createPanelGenerationAdapter(deps: PanelAdapterDeps) {
           deps.locks.release(input.libraryId)
         }
       })()
-      deps.registry.trackCompletion(work)
       return work
     },
   }

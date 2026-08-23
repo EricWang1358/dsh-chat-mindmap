@@ -70,11 +70,11 @@ const tinyBudget = makeRecord({
   config: { ...baseConfig, contextLimit: 1 },
 })
 const allOmitted = buildRegenerationPrompt(tinyBudget)
-// Known latent gap F-1: the omission notice only renders when at least one
-// note survived. Faithful extraction must reproduce this until the
-// integration-phase switchover fixes it in the single canonical copy.
+// F-1 closed at the S4 integration switchover: the zero-attached case now
+// states the omission explicitly instead of staying silent.
 assert.ok(!allOmitted.text.includes('<node-notes'))
-assert.ok(!allOmitted.text.includes('未附带'))
+assert.ok(allOmitted.text.includes('未附带'))
+assert.ok(allOmitted.text.includes('全部因超出提示预算'))
 
 const mixedDoc = buildMindmap('# T\n## A\n## B')
 mixedDoc.root.children[0].note = 'small note'

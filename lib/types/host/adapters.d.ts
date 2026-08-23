@@ -37,7 +37,18 @@ export interface PanelStartInput {
  * real in-flight work and awaits quiescence.
  */
 export declare function createPanelGenerationAdapter(deps: PanelAdapterDeps): {
+    /**
+     * S4-W1 (D-S4-1): §11 requires POST /maps/:id/regenerate to answer with a
+     * runId immediately so the client can poll and cancel. begin() hands back
+     * the synchronously registered view plus the completion promise; start()
+     * keeps the S2 golden contract of awaiting full settlement.
+     */
+    begin(input: PanelStartInput): {
+        view: PanelRunView;
+        done: Promise<PanelRunView>;
+    };
     start(input: PanelStartInput): Promise<PanelRunView>;
+    settle(input: PanelStartInput, runId: string, view: PanelRunView, controller: AbortController): Promise<PanelRunView>;
 };
 export interface ChatJobsLike {
     start(input: {
