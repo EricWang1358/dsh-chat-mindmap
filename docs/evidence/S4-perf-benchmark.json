@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-08-23T19:23:39.686Z",
+  "generatedAt": "2026-08-23T19:32:20.912Z",
   "nodes": 360,
   "targetEnvironment": "node v22.22.3 win32 (pipeline-only)",
   "timingsMs": {
-    "buildMindmap": 3.98,
-    "validate": 0.33,
+    "buildMindmap": 4.04,
+    "validate": 0.36,
     "toMarkdown": 0.22,
-    "serialize": 0.12,
-    "parse": 0.42
+    "serialize": 0.13,
+    "parse": 0.51
   },
   "budget": {
     "pipelineEachUnder1s": true
