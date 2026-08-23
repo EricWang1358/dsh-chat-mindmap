@@ -327,3 +327,43 @@ try {
 }
 
 console.log('host commit transaction tests passed')
+
+import { INTERRUPTED_DETAIL, PanelRunRegistry } from '../lib/host/panel-runs.js'
+
+assert.equal(INTERRUPTED_DETAIL, '生成已中断')
+
+const panelRegistry = new PanelRunRegistry()
+panelRegistry.register({ runId: 'run-1', libraryId: 'map-1', status: 'running', detail: 'started' })
+assert.equal(panelRegistry.get('run-1')?.status, 'running')
+panelRegistry.update('run-1', { status: 'completed', detail: 'done', revisionId: 'rev-x' })
+assert.equal(panelRegistry.get('run-1')?.revisionId, 'rev-x')
+assert.equal(panelRegistry.update('ghost', { status: 'failed', detail: 'x' }), null)
+
+const missingView = panelRegistry.getViewOrInterrupted('missing-run')
+assert.equal(missingView.status, 'failed')
+assert.equal(missingView.detail, INTERRUPTED_DETAIL)
+assert.ok(!Object.prototype.hasOwnProperty.call(missingView, 'revisionId'))
+
+const builtModuleSource = await readFile(new URL('../lib/host/panel-runs.js', import.meta.url), 'utf8')
+assert.ok(!/node:fs|require\(|readFile|writeFile/.test(builtModuleSource), 'panel-runs must have zero IO surface')
+
+const disposal = new PanelRunRegistry()
+const makeTracked = () => { let resolveIt; const promise = new Promise((resolve) => { resolveIt = resolve }); return [promise, () => resolveIt()] }
+const [firstPromise, firstResolve] = makeTracked()
+const [secondPromise, secondResolve] = makeTracked()
+const firstController = new AbortController()
+const secondController = new AbortController()
+disposal.register({ runId: 'r1', libraryId: 'm1', status: 'running', detail: '' }, firstController)
+disposal.register({ runId: 'r2', libraryId: 'm2', status: 'running', detail: '' }, secondController)
+disposal.trackCompletion(firstPromise.then(() => 1))
+disposal.trackCompletion(secondPromise.then(() => 2))
+
+const disposedPromise = disposal.disposeAll()
+assert.equal(firstController.signal.aborted, true)
+assert.equal(secondController.signal.aborted, true)
+secondResolve()
+firstResolve()
+await disposedPromise
+assert.ok(disposal.get('r1'))
+
+console.log('host panel registry tests passed')
