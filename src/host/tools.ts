@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { countMindmapNodes } from '../core.js'
 import { DomainError } from '../domain/errors.js'
-import { reserveLibraryId } from '../domain/records.js'
+import { reserveLibraryId, LEGACY_UNSCOPED_WORKSPACE } from '../domain/records.js'
 import { DEFAULT_MINDMAP_CONFIG } from '../domain/settings.js'
 import { getMindmap, saveMindmap, type MindmapConfig, type MindmapRecord, type MindmapSource } from '../library.js'
 import { revisionIdOf } from '../revisions.js'
 import type { GenerationLockRegistry } from './generation-locks.js'
 import { commitGenerationOutcome, runSourceOutlineGeneration, selectProvider, type SubagentRuntimeLike } from './generation-executor.js'
-import { LIBRARY_ID_MAX_LENGTH, LIBRARY_ID_PATTERN } from './id-patterns.js'
+import { LIBRARY_ID_MAX_LENGTH, LIBRARY_ID_PATTERN, REVISION_ID_MAX_LENGTH, REVISION_ID_PATTERN } from './id-patterns.js'
 
 // ---------------------------------------------------------------------------
 // Chat tool surface (Phase 3, docs/plans/S3_PLAN_v3.md §W1). The launcher is
@@ -167,6 +167,8 @@ export interface ChatMindmapToolDeps {
   save?(input: Parameters<typeof saveMindmap>[0]): Promise<MindmapRecord>
   logger?(line: string): void
   timeoutMs?: number
+  /** Resolves the caller agent's workspace key; undefined when unresolvable. Read-only. */
+  workspaceKeyOfAgent?(agent: unknown): string | undefined
 }
 
 interface AgentRef { id?: string }
@@ -276,6 +278,73 @@ const LAUNCH_SCHEMA = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// present_chat_mindmap (§10.2): no model inference, no write side effects.
+// The durable dsh-chat-mindmap-preview payload is exactly five keys — the
+// shape pinned by gate0 G0-4-fixture strict deepEqual (R1-2).
+// ---------------------------------------------------------------------------
+
+export const PREVIEW_PAYLOAD_PREFIX = 'dsh-chat-mindmap-preview:'
+
+export interface PresentInput {
+  libraryId: string
+  revisionId: string
+}
+
+export function parsePresentInput(value: unknown): PresentInput {
+  if (!isRecord(value)) throw new DomainError('INVALID_REQUEST', 'arguments must be an object')
+  const libraryId = optionalString(value.libraryId, 'libraryId', LIBRARY_ID_MAX_LENGTH)
+  const revisionId = optionalString(value.revisionId, 'revisionId', REVISION_ID_MAX_LENGTH)
+  if (!libraryId || !LIBRARY_ID_PATTERN.test(libraryId)) throw new DomainError('INVALID_REQUEST', 'libraryId is invalid')
+  if (!revisionId || !REVISION_ID_PATTERN.test(revisionId)) throw new DomainError('INVALID_REQUEST', 'revisionId is invalid')
+  return { libraryId, revisionId }
+}
+
+export interface PresentationValue {
+  libraryId: string
+  revisionId: string
+  title: string
+  nodeCount: number
+  state: 'available' | 'expired'
+}
+
+async function executePresent(deps: ChatMindmapToolDeps, rawArgs: unknown, exec?: { agent?: unknown }): Promise<PresentationValue> {
+  const input = parsePresentInput(rawArgs)
+  const record = await (deps.loadRecord ?? getMindmap)(input.libraryId)
+  if (!record) return { libraryId: input.libraryId, revisionId: input.revisionId, title: 'Mind map', nodeCount: 0, state: 'expired' }
+  // Workspace fence (§10.2): legacy-unscoped records stay globally readable;
+  // anything scoped requires the caller to resolve into the same workspace.
+  // A mismatch degrades to the generic expired shape — zero title/node leak.
+  const callerWorkspace = deps.workspaceKeyOfAgent?.(exec?.agent)
+  const mismatched = typeof record.workspaceKey === 'string' && record.workspaceKey !== LEGACY_UNSCOPED_WORKSPACE && callerWorkspace !== undefined && callerWorkspace !== record.workspaceKey
+  if (mismatched) return { libraryId: input.libraryId, revisionId: input.revisionId, title: 'Mind map', nodeCount: 0, state: 'expired' }
+  const document = revisionIdOf(record.current) === input.revisionId ? record.current : record.previous && revisionIdOf(record.previous) === input.revisionId ? record.previous : null
+  if (!document) return { libraryId: input.libraryId, revisionId: input.revisionId, title: record.title, nodeCount: 0, state: 'expired' }
+  return { libraryId: input.libraryId, revisionId: input.revisionId, title: document.title, nodeCount: countMindmapNodes(document.root), state: 'available' }
+}
+
+export function previewPayloadText(value: PresentationValue): string {
+  return PREVIEW_PAYLOAD_PREFIX + JSON.stringify({ libraryId: value.libraryId, revisionId: value.revisionId, title: value.title, nodeCount: value.nodeCount, state: value.state })
+}
+
+function presentationSentence(value: PresentationValue): string {
+  return value.state === 'available'
+    ? '已定位脑图「' + value.title + '」（' + value.nodeCount + ' 节点），客户端正在渲染只读 SVG 预览。'
+    : '该脑图引用已失效或当前工作区不可访问，请重新生成后再试。'
+}
+
+const PRESENT_SCHEMA = {
+  type: 'object' as const,
+  additionalProperties: false,
+  properties: {
+    libraryId: { type: 'string' as const },
+    revisionId: { type: 'string' as const },
+    title: { type: 'string' as const },
+    nodeCount: { type: 'integer' as const },
+    state: { type: 'string' as const },
+  },
+}
+
 /**
  * Phase 3 chat tools factory. Wiring into apply() belongs to the integration
  * switchover (S3 adjudication (b)); tests drive this factory directly.
@@ -299,5 +368,22 @@ export function createChatMindmapTools(deps: ChatMindmapToolDeps) {
     timeoutMs: 10_000,
     execute: async (rawArgs: unknown, exec: { agent?: unknown }) => executeLaunch(deps, rawArgs, exec),
   })
-  return { generate }
+  const present = defineTool({
+    name: 'present_chat_mindmap',
+    description: 'Render a previously generated mind map as a read-only SVG preview card. Pass the libraryId and revisionId returned by generate_chat_mindmap or the job output. This tool never modifies the map.',
+    parameters: {
+      libraryId: { type: 'string', required: true, description: 'Persistent mind map library ID.' },
+      revisionId: { type: 'string', required: true, description: 'Immutable revision ID returned by generation.' },
+    },
+    output: {
+      schema: PRESENT_SCHEMA,
+      render: (_args: unknown, value: PresentationValue) => [
+        { type: 'text' as const, text: previewPayloadText(value) },
+        { type: 'text' as const, text: presentationSentence(value) },
+      ],
+    },
+    timeoutMs: 15_000,
+    execute: async (rawArgs: unknown, exec: { agent?: unknown }) => executePresent(deps, rawArgs, exec),
+  })
+  return { generate, present }
 }

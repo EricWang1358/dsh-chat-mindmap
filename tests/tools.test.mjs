@@ -116,6 +116,10 @@ function makeDeps(overrides = {}) {
       config: inputArg.config,
     }
   })
+  for (const [key, value] of Object.entries(overrides)) {
+    if (['jobs', 'runtime', 'locks', 'loadRecord', 'save', 'timeoutMs', 'logger'].includes(key)) continue
+    deps[key] = value
+  }
   return deps
 }
 
@@ -402,5 +406,123 @@ console.log('tools source runner contract tests passed')
 // Let injected-short-timeout bodies settle so no generation timer outlives
 // the suite (a clean process exit is itself part of the contract).
 await new Promise((resolve) => setTimeout(resolve, 200))
+
+// ---------------------------------------------------------------------------
+// present_chat_mindmap: five-key durable payload, fence, zero-write surface
+// ---------------------------------------------------------------------------
+
+import { buildMindmap } from '../lib/core.js'
+import { PREVIEW_PAYLOAD_PREFIX } from '../lib/host/tools.js'
+
+function makePresentRecord(overrides = {}) {
+  const current = buildMindmap('# Present Root\n## Kid')
+  const previous = buildMindmap('# Old Root\n## Old Kid')
+  return {
+    libraryId: 'map-present',
+    title: current.title,
+    current,
+    previous,
+    previewCurrent: undefined,
+    previewPrevious: undefined,
+    schemaVersion: 2,
+    recordVersion: 3,
+    workspaceKey: 'legacy-unscoped',
+    archived: false,
+    createdAt: '',
+    updatedAt: '',
+    source: undefined,
+    config: { ...baseConfig },
+    ...overrides,
+  }
+}
+
+const presentRecord = makePresentRecord()
+const presentLoadCalls = []
+const presentDeps = makeDeps({
+  jobs: null,
+  runtime: null,
+  loadRecord: async (id) => {
+    presentLoadCalls.push(id)
+    return presentRecord
+  },
+})
+const presentFactory = createChatMindmapTools(presentDeps)
+assert.ok(presentFactory.present, 'factory must expose the present tool')
+assert.deepEqual(Object.keys(presentFactory.present.parameters.properties).sort(), ['libraryId', 'revisionId'])
+
+const currentRevision = revisionIdOf(presentRecord.current)
+const availableValue = await presentFactory.present.execute({ libraryId: 'map-present', revisionId: currentRevision }, { agent: { id: 's' } })
+assert.deepEqual(availableValue, { libraryId: 'map-present', revisionId: currentRevision, title: 'Present Root', nodeCount: 2, state: 'available' })
+const renderedBlocks = presentFactory.present.output.render({}, availableValue)
+assert.equal(renderedBlocks.length, 2)
+const expectedPayloadText = PREVIEW_PAYLOAD_PREFIX + JSON.stringify({ libraryId: 'map-present', revisionId: currentRevision, title: 'Present Root', nodeCount: 2, state: 'available' })
+assert.equal(renderedBlocks[0].text, expectedPayloadText)
+assert.ok(renderedBlocks[1].text.includes('已定位脑图'))
+assert.equal(presentLoadCalls.length, 1, 'present must read exactly once per invocation')
+console.log('tools present available tests passed')
+
+// G0-4-fixture isomorph: call head pruned, only durable content survives.
+const prunedResultNode = {
+  kind: 'tool-result',
+  seq: 41,
+  time: 1,
+  callId: 'mindmap-present-1',
+  call: null,
+  callTime: null,
+  content: [{ type: 'text', text: renderedBlocks[0].text }],
+  isError: false,
+  callView: null,
+  resultView: null,
+  subCalls: [],
+}
+const wireCopy = JSON.parse(JSON.stringify(prunedResultNode))
+assert.equal(wireCopy.call, null)
+const recoveredPayload = JSON.parse(wireCopy.content[0].text.slice(PREVIEW_PAYLOAD_PREFIX.length))
+assert.deepEqual(recoveredPayload, { libraryId: 'map-present', revisionId: currentRevision, title: 'Present Root', nodeCount: 2, state: 'available' })
+console.log('tools present replay fixture tests passed')
+
+// Workspace fence: scoped record + different caller workspace → generic expiry.
+const fencedRecord = makePresentRecord({ workspaceKey: 'ws-aaa' })
+const fenceDeps = makeDeps({
+  jobs: null,
+  runtime: null,
+  loadRecord: async () => fencedRecord,
+  workspaceKeyOfAgent: () => 'ws-bbb',
+})
+const fenceTools = createChatMindmapTools(fenceDeps)
+const fencedValue = await fenceTools.present.execute({ libraryId: 'map-present', revisionId: currentRevision }, { agent: { id: 'other' } })
+assert.deepEqual(fencedValue, { libraryId: 'map-present', revisionId: currentRevision, title: 'Mind map', nodeCount: 0, state: 'expired' })
+const fenceBlocks = fenceTools.present.output.render({}, fencedValue)
+const fenceLeakCheck = fenceBlocks.map((b) => b.text).join('\n')
+assert.ok(!fenceLeakCheck.includes('Present Root'), 'workspace mismatch must not leak the real title')
+assert.ok(fenceLeakCheck.includes('"nodeCount":0'), 'workspace mismatch must report zero nodes')
+
+// Legacy unscoped stays readable without any resolver.
+const legacyValue = await presentFactory.present.execute({ libraryId: 'map-present', revisionId: currentRevision }, { agent: undefined })
+assert.equal(legacyValue.state, 'available')
+console.log('tools present workspace fence tests passed')
+
+// Deleted map and stale revision paths.
+const goneDeps = makeDeps({ jobs: null, runtime: null, loadRecord: async () => null })
+const goneTools = createChatMindmapTools(goneDeps)
+const goneValue = await goneTools.present.execute({ libraryId: 'map-gone', revisionId: 'rev-0123456789abcdef01234567' }, { agent: undefined })
+assert.deepEqual(goneValue, { libraryId: 'map-gone', revisionId: 'rev-0123456789abcdef01234567', title: 'Mind map', nodeCount: 0, state: 'expired' })
+const staleValue = await presentFactory.present.execute({ libraryId: 'map-present', revisionId: 'rev-999999999999999999999999' }, { agent: undefined })
+assert.equal(staleValue.state, 'expired')
+assert.equal(staleValue.title, 'Present Root')
+assert.equal(staleValue.nodeCount, 0)
+console.log('tools present expiry path tests passed')
+
+// Strict id whitelists on the tool surface mirror the route surface.
+for (const badArgs of [{ libraryId: 'bad!', revisionId: 'rev-0123456789abcdef01234567' }, { libraryId: 'map-ok', revisionId: 'not-a-revision' }]) {
+  let threwCode = ''
+  try {
+    await presentFactory.present.execute(badArgs, { agent: undefined })
+  } catch (error) {
+    threwCode = error instanceof DomainError ? error.code : ''
+  }
+  assert.equal(threwCode, 'INVALID_REQUEST')
+}
+console.log('tools present whitelist tests passed')
 
 console.log('tools tests passed')
