@@ -40,6 +40,9 @@ export function buildRegenerationPrompt(record: RegenerationPromptSource | null 
 /** ADR-008: compile-time stability policy. Never exposed as a user setting. */
 export const GENERATION_MAX_TOKENS = 6000
 
+/** §18 hard timeout: 180 seconds ± 2. Inject a short value in tests only. */
+export const GENERATION_TIMEOUT_MS = 180_000
+
 export const OUTLINE_OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -88,7 +91,16 @@ export interface OutlineFailed {
   diagnostic: string
 }
 
-export type OutlineResult = OutlineCompleted | OutlineFailed
+export interface OutlineTimedOut {
+  kind: 'timed_out'
+  diagnostic: string
+}
+
+export interface OutlineCancelled {
+  kind: 'cancelled'
+}
+
+export type OutlineResult = OutlineCompleted | OutlineFailed | OutlineTimedOut | OutlineCancelled
 
 /**
  * Runs one subagent outline attempt. Provider selection follows §8.2; the
@@ -99,11 +111,12 @@ export type OutlineResult = OutlineCompleted | OutlineFailed
  */
 export async function runOutlineGeneration(
   services: { runtime: SubagentRuntimeLike },
-  input: { record: RegenerationPromptSource; instruction?: string; supplementalContext?: string; parent?: unknown; label?: string; controller?: AbortController },
+  input: { record: RegenerationPromptSource; instruction?: string; supplementalContext?: string; parent?: unknown; label?: string },
+  opts: { timeoutMs?: number; controller?: AbortController } = {},
 ): Promise<OutlineResult> {
   const provider = selectProvider(services.runtime, input.supplementalContext)
   if (!provider) throw new DomainError('CAPABILITY_UNAVAILABLE', 'generation providers unavailable')
-  const controller = input.controller ?? new AbortController()
+  const controller = opts.controller ?? new AbortController()
   const { text } = buildRegenerationPrompt(input.record, input.instruction)
   let disposed = false
   let run: SubagentRunLike | undefined
@@ -116,6 +129,14 @@ export async function runOutlineGeneration(
       // R9: rc8 dispose idempotency is unverified; swallow cleanup errors.
     }
   }
+  // §9/§18 hard timeout. The timeout flag decides classification even when an
+  // external abort races it, so timed_out and cancelled never flip-flop.
+  const timeoutMs = opts.timeoutMs ?? GENERATION_TIMEOUT_MS
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   try {
     run = await services.runtime.start(provider, {
       label: input.label ?? '重新构建脑图',
@@ -128,13 +149,16 @@ export async function runOutlineGeneration(
       persona: OUTLINE_PERSONA,
     })
     const result = await run.result
+    if (controller.signal.aborted) return timedOut ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
     if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || `subagent stopped: ${result.stopReason}`) }
     const validated = validateAgentOutlineResult(result.structured)
     const strict = buildStrictOutlineDocument(validated, { maxNodes: input.record.config.maxNodes, contextLimit: input.record.config.contextLimit })
     return { kind: 'completed', document: strict.document, title: strict.document.title, truncated: strict.truncated, childId: run.id, provider }
   } catch (error) {
+    if (controller.signal.aborted) return timedOut ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
     return { kind: 'failed', diagnostic: safeDiagnostic(error) }
   } finally {
+    clearTimeout(timer)
     await disposeOnce()
   }
 }

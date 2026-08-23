@@ -14,6 +14,8 @@ export declare function buildRegenerationPrompt(record: RegenerationPromptSource
 };
 /** ADR-008: compile-time stability policy. Never exposed as a user setting. */
 export declare const GENERATION_MAX_TOKENS = 6000;
+/** §18 hard timeout: 180 seconds ± 2. Inject a short value in tests only. */
+export declare const GENERATION_TIMEOUT_MS = 180000;
 export declare const OUTLINE_OUTPUT_SCHEMA: {
     readonly type: "object";
     readonly additionalProperties: false;
@@ -55,7 +57,14 @@ export interface OutlineFailed {
     kind: 'failed';
     diagnostic: string;
 }
-export type OutlineResult = OutlineCompleted | OutlineFailed;
+export interface OutlineTimedOut {
+    kind: 'timed_out';
+    diagnostic: string;
+}
+export interface OutlineCancelled {
+    kind: 'cancelled';
+}
+export type OutlineResult = OutlineCompleted | OutlineFailed | OutlineTimedOut | OutlineCancelled;
 /**
  * Runs one subagent outline attempt. Provider selection follows §8.2; the
  * prompt is always composed by buildRegenerationPrompt (P3 single copy); the
@@ -71,5 +80,7 @@ export declare function runOutlineGeneration(services: {
     supplementalContext?: string;
     parent?: unknown;
     label?: string;
+}, opts?: {
+    timeoutMs?: number;
     controller?: AbortController;
 }): Promise<OutlineResult>;

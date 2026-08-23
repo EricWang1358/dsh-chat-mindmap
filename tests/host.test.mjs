@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { DomainError } from '../lib/domain/errors.js'
 import { buildRegenerationPrompt } from '../lib/host/generation-executor.js'
 import { GenerationLockRegistry } from '../lib/host/generation-locks.js'
-import { GENERATION_MAX_TOKENS, OUTLINE_OUTPUT_SCHEMA, OUTLINE_PERSONA, selectProvider, runOutlineGeneration } from '../lib/host/generation-executor.js'
+import { GENERATION_MAX_TOKENS, GENERATION_TIMEOUT_MS, OUTLINE_OUTPUT_SCHEMA, OUTLINE_PERSONA, selectProvider, runOutlineGeneration } from '../lib/host/generation-executor.js'
 import { buildMindmap } from '../lib/core.js'
 
 const baseConfig = { layout: 'logicalStructure', density: 'standard', maxNodes: 360, theme: 'default', font: 'system', instruction: '', language: 'auto', contextLimit: 80_000 }
@@ -205,3 +205,57 @@ const unavailableCode = await runOutlineGeneration({ runtime: { getProvider: () 
 assert.equal(unavailableCode, 'CAPABILITY_UNAVAILABLE')
 
 console.log('host executor pipeline tests passed')
+
+assert.equal(GENERATION_TIMEOUT_MS, 180_000)
+
+function controllableRuntime(payload = { stopReason: 'completed', structured: { title: 'Slow', outline: '# Slow\n## C' } }) {
+  const requests = []
+  let releaseResult = () => {}
+  let disposedCount = 0
+  let resultPromise
+  const runtime = {
+    getProvider: () => ({}),
+    async start(name, request) {
+      requests.push({ name, request })
+      if (!resultPromise) {
+        resultPromise = new Promise((resolve, reject) => {
+          releaseResult = () => resolve(payload)
+          request.signal.addEventListener('abort', () => reject(new Error('aborted by signal')))
+        })
+      }
+      return { id: 'child-slow', result: resultPromise, dispose: async () => { disposedCount += 1 } }
+    },
+  }
+  return { requests, runtime, release: () => releaseResult(), get disposedCount() { return disposedCount } }
+}
+
+const slow = controllableRuntime()
+const timedOutOutcome = await runOutlineGeneration({ runtime: slow.runtime }, { record }, { timeoutMs: 25 })
+assert.equal(timedOutOutcome.kind, 'timed_out')
+assert.equal(slow.disposedCount, 1)
+slow.release()
+
+const cancelledCtl = new AbortController()
+const cancellable = controllableRuntime()
+const cancelledPending = runOutlineGeneration({ runtime: cancellable.runtime }, { record }, { controller: cancelledCtl, timeoutMs: 5_000 })
+assert.equal(cancellable.requests.length, 1)
+cancelledCtl.abort()
+const cancelledOutcome = await cancelledPending
+assert.equal(cancelledOutcome.kind, 'cancelled')
+assert.equal(cancellable.disposedCount, 1)
+
+const errorPath = controllableRuntime({ stopReason: 'crashed' })
+const errorPending = runOutlineGeneration({ runtime: errorPath.runtime }, { record })
+errorPath.release()
+const errorOutcome = await errorPending
+assert.equal(errorOutcome.kind, 'failed')
+assert.equal(errorPath.disposedCount, 1)
+
+const happyPath = controllableRuntime()
+const happyPending = runOutlineGeneration({ runtime: happyPath.runtime }, { record })
+happyPath.release()
+const happySlow = await happyPending
+assert.equal(happySlow.kind, 'completed')
+assert.equal(happyPath.disposedCount, 1)
+
+console.log('host timeout cleanup tests passed')
