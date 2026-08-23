@@ -22,6 +22,14 @@ const files = [
   'src/host/generation-locks.ts',
   'src/host/panel-runs.ts',
   'src/host/adapters.ts',
+  // S3 additions (W7): canonical tool/REST surface + componentized client.
+  'src/host/id-patterns.ts',
+  'src/host/tools.ts',
+  'src/host/routes.ts',
+  'src/client/card-state.ts',
+  'src/client/components/blob-url-lru.ts',
+  'src/client/components/MindmapToolCard.tsx',
+  'src/client/preview/dialog.tsx',
 ].map((file) => join(root, file)).filter((file) => existsSync(file))
 assert.ok(files.length >= 4, 'SAST scan list must not be empty')
 const source = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n')
