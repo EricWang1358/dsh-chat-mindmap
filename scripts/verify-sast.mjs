@@ -18,6 +18,7 @@ const files = [
   'src/domain/settings.ts',
   'src/domain/records.ts',
   'src/domain/generation.ts',
+  'src/host/generation-executor.ts',
 ].map((file) => join(root, file)).filter((file) => existsSync(file))
 assert.ok(files.length >= 4, 'SAST scan list must not be empty')
 const source = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n')
