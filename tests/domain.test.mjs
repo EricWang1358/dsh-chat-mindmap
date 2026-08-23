@@ -98,6 +98,7 @@ assert.deepEqual(resolveNewRecordConfig(custom, mergedRequest), merged)
 console.log('domain settings tests passed')
 
 import { normalizeWorkspaceCwd, workspaceKeyOf } from '../lib/domain/records.js'
+import { buildMindmap } from '../lib/core.js'
 
 const winVariants = ['D:\\A\\Dir', 'd:\\a\\dir', 'D:/A/Dir/', '\\\\?\\D:\\A\\Dir', 'D:\\\\A\\\\Dir']
 const winNormalized = new Set(winVariants.map((sample) => normalizeWorkspaceCwd(sample, 'win32')))
@@ -120,3 +121,39 @@ assert.throws(() => normalizeWorkspaceCwd('', 'linux'), /required/)
 assert.throws(() => normalizeWorkspaceCwd(null, 'linux'), /required/)
 
 console.log('domain workspace tests passed')
+
+import { LEGACY_UNSCOPED_WORKSPACE, migrateRecordToV2 } from '../lib/domain/records.js'
+import { revisionIdOf } from '../lib/revisions.js'
+
+const v1Document = buildMindmap('# Legacy\n## Child')
+const v1Record = {
+  libraryId: 'map-legacy-1',
+  title: 'Legacy',
+  current: v1Document,
+  config: { layout: 'logicalStructure', density: 'standard', maxNodes: 360, theme: 'default', font: 'system', instruction: '', language: 'auto', contextLimit: 80_000 },
+  source: { kind: 'text' },
+  archived: false,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+}
+const migrated = migrateRecordToV2(v1Record)
+assert.equal(migrated.schemaVersion, 2)
+assert.equal(migrated.recordVersion, 1)
+assert.equal(migrated.workspaceKey, LEGACY_UNSCOPED_WORKSPACE)
+assert.equal(migrated.previewCurrent.revisionId, revisionIdOf(v1Document))
+assert.deepEqual(migrated.previewCurrent.document, v1Document)
+assert.equal(migrated.previewCurrent.generatedAt, v1Record.updatedAt)
+assert.equal(migrated.previewPrevious, undefined)
+assert.notEqual(migrated, v1Record)
+
+const snapshot = JSON.stringify(v1Record)
+migrateRecordToV2(v1Record)
+assert.equal(JSON.stringify(v1Record), snapshot)
+
+const remigrated = migrateRecordToV2(JSON.parse(JSON.stringify(migrated)))
+assert.deepEqual(remigrated, JSON.parse(JSON.stringify(migrated)))
+
+const preKeyed = migrateRecordToV2({ ...JSON.parse(JSON.stringify(v1Record)), workspaceKey: 'abc123' })
+assert.equal(preKeyed.workspaceKey, 'abc123')
+
+console.log('domain records migration tests passed')

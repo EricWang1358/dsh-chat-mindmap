@@ -1,5 +1,37 @@
 import { createHash } from 'node:crypto'
+import type { MindmapDocument } from '../core.js'
+import { revisionIdOf } from '../revisions.js'
 import { DomainError } from './errors.js'
+
+export const LEGACY_UNSCOPED_WORKSPACE = 'legacy-unscoped'
+
+export interface GenerationPreviewSnapshot {
+  revisionId: string
+  document: MindmapDocument
+  generatedAt: string
+}
+
+export function isSchemaV2Record(value: unknown): value is Record<string, unknown> & { schemaVersion: 2 } {
+  return typeof value === 'object' && value !== null && (value as Record<string, unknown>).schemaVersion === 2
+}
+
+/**
+ * Lazy V1→V2 migration per technical design §6.3. Pure and idempotent: it
+ * never touches disk, never mutates its input, and re-migrating an already
+ * migrated record yields a deep-equal result. The migrated snapshot counts as
+ * generation #1, so legacy maps get a stable chat preview immediately.
+ */
+export function migrateRecordToV2<T extends Record<string, unknown>>(record: T): T & { schemaVersion: 2; recordVersion: number; previewCurrent: GenerationPreviewSnapshot; workspaceKey: string; previewPrevious?: GenerationPreviewSnapshot } {
+  if (isSchemaV2Record(record)) return record as T & { schemaVersion: 2; recordVersion: number; previewCurrent: GenerationPreviewSnapshot; workspaceKey: string }
+  const current = record.current as MindmapDocument
+  return {
+    ...record,
+    schemaVersion: 2,
+    recordVersion: 1,
+    workspaceKey: typeof record.workspaceKey === 'string' ? record.workspaceKey : LEGACY_UNSCOPED_WORKSPACE,
+    previewCurrent: { revisionId: revisionIdOf(current), document: current, generatedAt: String(record.updatedAt ?? '') },
+  }
+}
 
 /**
  * Deterministic workspace identity per the technical design §6.2: the Host
