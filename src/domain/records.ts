@@ -93,7 +93,7 @@ export function swapCurrentPrevious<T extends { current: MindmapDocument; previo
   return { ...record, current: record.previous, previous: record.current }
 }
 
-/** ¡ì9.1: pre-allocate a library id without creating any disk record. */
+/** Â§9.1: pre-allocate a library id without creating any disk record. */
 export function reserveLibraryId(now: number = Date.now(), randomHex: string = randomUUID().replaceAll('-', '').slice(0, 12)): string {
   return `map-${now.toString(36)}-${randomHex}`
 }
