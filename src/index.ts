@@ -1,8 +1,11 @@
 import { SessionId } from '@deepseek-ai/dsh-session'
+import Schema from '@deepseek-ai/schemastery'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { DomainError } from './domain/errors.js'
 import { workspaceKeyOf } from './domain/records.js'
-import { getMindmap } from './library.js'
+import { DEFAULT_SETTINGS, resolveNewRecordConfig, type MindmapSettings } from './domain/settings.js'
+import { getMindmap, saveMindmap } from './library.js'
 import { createPanelGenerationAdapter } from './host/adapters.js'
 import { GenerationLockRegistry } from './host/generation-locks.js'
 import { GENERATION_TIMEOUT_MS, type SubagentRuntimeLike } from './host/generation-executor.js'
@@ -51,7 +54,19 @@ interface LiveServices {
   agents?: AgentRegistryLike
   subagents?: SubagentRuntimeLike
   jobs?: MindmapJobRegistryLike
+  settings?: { get(): unknown }
 }
+
+/** §7 namespace schema (mirrors domain MindmapSettings; defaults come from the composition base). */
+const SETTINGS_SCHEMA = Schema.object({
+  defaultLayout: Schema.string().default('logicalStructure'),
+  defaultTheme: Schema.string().default('default'),
+  defaultDensity: Schema.string().default('standard'),
+  defaultMaxNodes: Schema.number().default(360),
+  defaultContextLimit: Schema.number().default(80_000),
+  defaultLanguage: Schema.string().default('auto'),
+  focusGeneratedMap: Schema.boolean().default(false),
+})
 
 function cwdOfAgent(agent: unknown): string | undefined {
   if (!agent || typeof agent !== 'object') return undefined
@@ -96,6 +111,19 @@ export function apply(ctx: PluginContext): void {
     }, 'chat-mindmap: jobs capability')
   })
 
+  injectOptional?.(['settings'], (serviceCtx) => {
+    const provider = serviceCtx.settings as { register(ns: unknown, schema: unknown, options?: unknown): { get(): unknown } }
+    const scope = provider.register(settingsNamespace('chat-mindmap'), SETTINGS_SCHEMA, { base: DEFAULT_SETTINGS, applies: 'live' })
+    live.settings = scope
+    capabilities.settings = true
+    serviceCtx.effect(() => () => {
+      live.settings = undefined
+      capabilities.settings = false
+    }, 'chat-mindmap: settings namespace')
+  })
+
+  const currentSettings = (): MindmapSettings | undefined => (live.settings ? (live.settings.get() as MindmapSettings) : undefined)
+
   const workspaceKeyOfAgent = (agent: unknown): string | undefined => {
     const cwd = cwdOfAgent(agent)
     return cwd ? workspaceKeyOf(cwd) : undefined
@@ -117,6 +145,9 @@ export function apply(ctx: PluginContext): void {
     },
     timeoutMs: GENERATION_TIMEOUT_MS,
     workspaceKeyOfAgent,
+    get defaultsForNew() {
+      return currentSettings
+    },
   }
   const chatTools = createChatMindmapTools(toolDeps)
   ctx.effect(() => ctx.tools.register(chatTools.generate), 'chat-mindmap: generate_chat_mindmap')
@@ -161,6 +192,12 @@ export function apply(ctx: PluginContext): void {
         startPanelRun,
         capabilities,
         workspaceKeyOfSession,
+        saveRecord: (input) => {
+          // §7: settings merge only seeds NEW records (no libraryId in body).
+          const defaults = currentSettings()
+          const config = defaults && !('libraryId' in input) ? resolveNewRecordConfig(defaults, input.config) : input.config
+          return saveMindmap(input.libraryId ? input : { ...input, ...(config ? { config } : {}) })
+        },
       }),
     'chat-mindmap: REST V2 routes',
   )

@@ -3,7 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { countMindmapNodes } from '../core.js'
 import { DomainError } from '../domain/errors.js'
 import { reserveLibraryId, LEGACY_UNSCOPED_WORKSPACE } from '../domain/records.js'
-import { DEFAULT_MINDMAP_CONFIG } from '../domain/settings.js'
+import { DEFAULT_MINDMAP_CONFIG, resolveNewRecordConfig, type MindmapSettings } from '../domain/settings.js'
 import { getMindmap, saveMindmap, type MindmapConfig, type MindmapRecord, type MindmapSource } from '../library.js'
 import { revisionIdOf } from '../revisions.js'
 import type { GenerationLockRegistry } from './generation-locks.js'
@@ -154,8 +154,11 @@ export function parseLaunchInput(value: unknown): LaunchInput {
  * global/partial settings only ever affect new maps, D-S3-6); new maps merge
  * the compiled-in defaults with caller overrides.
  */
-export function effectiveConfig(existing: MindmapRecord | null, override: Partial<MindmapConfig> | undefined): MindmapConfig {
+export function effectiveConfig(existing: MindmapRecord | null, override: Partial<MindmapConfig> | undefined, globalDefaults?: MindmapSettings): MindmapConfig {
+  // §7: global settings only seed NEW records; an explicit request config
+  // wins over them; an existing record's own config always wins over both.
   if (existing) return existing.config
+  if (globalDefaults) return resolveNewRecordConfig(globalDefaults, override)
   return { ...DEFAULT_MINDMAP_CONFIG, ...(override ?? {}) }
 }
 
@@ -163,6 +166,8 @@ export interface ChatMindmapToolDeps {
   locks: GenerationLockRegistry
   jobs?: MindmapJobRegistryLike
   runtime?: SubagentRuntimeLike
+  /** §7 global settings for NEW records; absent → compiled defaults. */
+  defaultsForNew?: () => MindmapSettings | undefined
   loadRecord?(id: string): Promise<MindmapRecord | null>
   save?(input: Parameters<typeof saveMindmap>[0]): Promise<MindmapRecord>
   logger?(line: string): void
@@ -195,7 +200,7 @@ function executeLaunch(deps: ChatMindmapToolDeps, rawArgs: unknown, exec?: { age
     try {
       if (!deps.jobs) throw new DomainError('CAPABILITY_UNAVAILABLE', 'background jobs unavailable')
       if (!deps.runtime || !selectProvider(deps.runtime, input.context)) throw new DomainError('CAPABILITY_UNAVAILABLE', 'generation providers unavailable')
-      const config = effectiveConfig(existing, input.config)
+      const config = effectiveConfig(existing, input.config, deps.defaultsForNew?.())
       const controller = new AbortController()
       const runJobBody = async (): Promise<JobOutcomeLike> => {
         try {

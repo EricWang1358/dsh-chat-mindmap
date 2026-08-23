@@ -1,3 +1,4 @@
+import { type MindmapSettings } from '../domain/settings.js';
 import { saveMindmap, type MindmapConfig, type MindmapRecord, type MindmapSource } from '../library.js';
 import type { GenerationLockRegistry } from './generation-locks.js';
 import { type SubagentRuntimeLike } from './generation-executor.js';
@@ -40,11 +41,13 @@ export declare function parseLaunchInput(value: unknown): LaunchInput;
  * global/partial settings only ever affect new maps, D-S3-6); new maps merge
  * the compiled-in defaults with caller overrides.
  */
-export declare function effectiveConfig(existing: MindmapRecord | null, override: Partial<MindmapConfig> | undefined): MindmapConfig;
+export declare function effectiveConfig(existing: MindmapRecord | null, override: Partial<MindmapConfig> | undefined, globalDefaults?: MindmapSettings): MindmapConfig;
 export interface ChatMindmapToolDeps {
     locks: GenerationLockRegistry;
     jobs?: MindmapJobRegistryLike;
     runtime?: SubagentRuntimeLike;
+    /** §7 global settings for NEW records; absent → compiled defaults. */
+    defaultsForNew?: () => MindmapSettings | undefined;
     loadRecord?(id: string): Promise<MindmapRecord | null>;
     save?(input: Parameters<typeof saveMindmap>[0]): Promise<MindmapRecord>;
     logger?(line: string): void;

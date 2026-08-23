@@ -6,6 +6,9 @@ type SessionService = {
 type ClientContext = Context & {
     slots: SlotRegistry;
     sessions: SessionService;
+    inject?: (services: readonly string[], callback: (services: Record<string, unknown> & {
+        effect(make: () => unknown, label?: string): void;
+    }) => void) => void;
 };
 export declare const inject: string[];
 /**
