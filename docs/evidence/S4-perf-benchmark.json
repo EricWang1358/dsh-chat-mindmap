@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-08-23T18:21:39.398Z",
+  "nodes": 360,
+  "targetEnvironment": "node v22.22.3 win32 (pipeline-only)",
+  "timingsMs": {
+    "buildMindmap": 3.97,
+    "validate": 0.42,
+    "toMarkdown": 0.29,
+    "serialize": 0.17,
+    "parse": 0.65
+  },
+  "budget": {
+    "pipelineEachUnder1s": true
+  },
+  "browserTimings": {
+    "canvasInteractionMs": "PENDING_LIVE",
+    "svgGenerationMs": "PENDING_LIVE",
+    "method": "performance.mark around MindMap mount / doExport(svg) in DSH web, recorded in stage report"
+  }
+}
