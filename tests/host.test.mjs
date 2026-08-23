@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { DomainError } from '../lib/domain/errors.js'
 import { buildRegenerationPrompt } from '../lib/host/generation-executor.js'
+import { GenerationLockRegistry } from '../lib/host/generation-locks.js'
+import { GENERATION_MAX_TOKENS, OUTLINE_OUTPUT_SCHEMA, OUTLINE_PERSONA, selectProvider, runOutlineGeneration } from '../lib/host/generation-executor.js'
 import { buildMindmap } from '../lib/core.js'
 
 const baseConfig = { layout: 'logicalStructure', density: 'standard', maxNodes: 360, theme: 'default', font: 'system', instruction: '', language: 'auto', contextLimit: 80_000 }
@@ -68,9 +70,9 @@ const tinyBudget = makeRecord({
   config: { ...baseConfig, contextLimit: 1 },
 })
 const allOmitted = buildRegenerationPrompt(tinyBudget)
-// Known latent gap F-1 (docs/plans/S2_DESIGN_DELTA_REVIEW.md): the omission
-// notice only renders when at least one note survived. Faithful extraction
-// must reproduce this; fix belongs to the integration-phase switchover.
+// Known latent gap F-1: the omission notice only renders when at least one
+// note survived. Faithful extraction must reproduce this until the
+// integration-phase switchover fixes it in the single canonical copy.
 assert.ok(!allOmitted.text.includes('<node-notes'))
 assert.ok(!allOmitted.text.includes('未附带'))
 
@@ -82,8 +84,6 @@ assert.ok(mixed.text.includes('small note'))
 assert.ok(mixed.text.includes('未附带'))
 
 console.log('host regeneration prompt tests passed')
-
-import { GenerationLockRegistry } from '../lib/host/generation-locks.js'
 
 const registry = new GenerationLockRegistry()
 assert.equal(registry.tryAcquire('map-a', 'run-1')?.state, 'accepted')
@@ -119,3 +119,84 @@ try {
 }
 
 console.log('host locks tests passed')
+
+assert.equal(GENERATION_MAX_TOKENS, 6000)
+assert.equal(OUTLINE_OUTPUT_SCHEMA.type, 'object')
+assert.deepEqual(OUTLINE_OUTPUT_SCHEMA.required, ['title', 'outline'])
+assert.ok(OUTLINE_PERSONA.includes('严格 Markdown 层级大纲'))
+
+const runtimeOf = (providers) => ({ getProvider: (name) => providers[name] })
+const selectionTable = [
+  [{ fork: {}, spawn: {} }, '', 'fork'],
+  [{ fork: {}, spawn: {} }, 'ctx', 'fork'],
+  [{ spawn: {} }, 'ctx', 'spawn'],
+  [{ spawn: {} }, '', null],
+  [{}, 'ctx', null],
+]
+for (const [providers, supp, want] of selectionTable) {
+  assert.equal(selectProvider(runtimeOf(providers), supp), want, JSON.stringify(providers))
+}
+assert.equal(selectProvider(undefined, 'ctx'), null)
+
+const RC8_START_KEYS = ['label', 'prompt', 'parent', 'signal', 'outputSchema', 'maxDepth', 'toolFilter', 'persona']
+function scriptedRuntime(plan) {
+  const requests = []
+  return {
+    requests,
+    runtime: {
+      getProvider: (name) => providersMap[name],
+      async start(name, request) {
+        requests.push({ name, request })
+        return { id: plan.id ?? 'child-9', result: Promise.resolve(plan.result), dispose: plan.dispose }
+      },
+    },
+  }
+}
+const providersMap = { fork: {}, spawn: {} }
+
+const record = makeRecord({ config: { ...baseConfig } })
+const happy = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Out', outline: '# Out\n## C' } }, id: 'child-9', dispose: async () => {} })
+const happyOutcome = await runOutlineGeneration({ runtime: happy.runtime }, { record, label: '重新构建脑图：T' })
+assert.equal(happyOutcome.kind, 'completed')
+assert.equal(happyOutcome.document.title, 'Out')
+assert.equal(happyOutcome.truncated, false)
+assert.equal(happyOutcome.childId, 'child-9')
+assert.equal(happyOutcome.provider, 'fork')
+
+const sent = happy.requests[0]
+assert.equal(sent.name, 'fork')
+for (const key of Object.keys(sent.request)) assert.ok(RC8_START_KEYS.includes(key), 'unexpected key ' + key)
+assert.deepEqual(sent.request.toolFilter, { allow: [] })
+assert.equal(sent.request.maxDepth, 1)
+assert.equal(sent.request.outputSchema, OUTLINE_OUTPUT_SCHEMA)
+assert.equal(sent.request.persona, OUTLINE_PERSONA)
+assert.ok(sent.request.signal instanceof AbortSignal)
+assert.equal(sent.request.prompt.length, 1)
+assert.equal(sent.request.prompt[0].type, 'text')
+assert.ok(sent.request.prompt[0].text.includes('将下面已有脑图转换'))
+
+const stopped = scriptedRuntime({ result: { stopReason: 'aborted', diagnostic: 'caller went away' }, dispose: async () => {} })
+const stoppedOutcome = await runOutlineGeneration({ runtime: stopped.runtime }, { record })
+assert.equal(stoppedOutcome.kind, 'failed')
+assert.equal(stoppedOutcome.diagnostic, 'caller went away')
+
+const invalid = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Only' } }, dispose: async () => {} })
+const invalidOutcome = await runOutlineGeneration({ runtime: invalid.runtime }, { record })
+assert.equal(invalidOutcome.kind, 'failed')
+assert.match(invalidOutcome.diagnostic, /outline is empty/)
+assert.ok(invalidOutcome.diagnostic.length <= 500)
+
+const truncating = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Cap', outline: '# Cap\n## a\n## b\n## c\n## d' } }, dispose: async () => {} })
+const truncatingOutcome = await runOutlineGeneration({ runtime: truncating.runtime }, { record: makeRecord({ config: { ...baseConfig, maxNodes: 3 } }) })
+assert.equal(truncatingOutcome.kind, 'completed')
+assert.equal(truncatingOutcome.truncated, true)
+
+const spawnRuntime = { getProvider: (name) => name === 'spawn' ? {} : undefined }
+const spawnOutcome = await runOutlineGeneration({ runtime: spawnRuntime }, { record, supplementalContext: '当前回合补充正文' })
+assert.equal(spawnOutcome.kind, 'completed')
+assert.equal(spawnOutcome.provider, 'spawn')
+
+const unavailableCode = await runOutlineGeneration({ runtime: { getProvider: () => undefined } }, { record }).then(() => 'no-error', (error) => error.code)
+assert.equal(unavailableCode, 'CAPABILITY_UNAVAILABLE')
+
+console.log('host executor pipeline tests passed')
