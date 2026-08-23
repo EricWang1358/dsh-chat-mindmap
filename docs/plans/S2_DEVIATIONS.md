@@ -25,6 +25,11 @@
 - **事实**（源码核实 2026-08-23）：`dsh-subagent-fork-in-process@0.1.0-rc.8` README 与 `scripts/gate0.mjs` 契约键中均无 maxTokens/max_tokens 引用。
 - **处置**：`GENERATION_MAX_TOKENS=6000` 常量化（ADR-008）并由测试断言；真实传递通道归集成期 live 接线验证；在此之前禁止向 start() 传非契约键。
 
-## DEV-S2-x（实施期追加区）
+## DEV-S2-4（W6）：executor 对「已中止 controller」的竞态加固
 
-（随实施追加）
+- **偏差内容**：v3 W3 验收只覆盖「运行中外部 abort」；W6 的 inflight+disposeAll fixture 暴露：若 controller 在 runtime 注册 signal 监听之前已 aborted，executor 会无限等待 result。实施改为所有 await 与 `abortedPromise` 竞速（预中止立即拒绝；完成后移除监听并挂空 catch 防未处理拒绝）。
+- **原因**：取消语义必须由 executor 自身确定性保证，不得依赖 rc8 对 pre-aborted signal 的行为（源码不可得，属 R9 同族）。
+- **备选对比**：(a) 要求调用方保证 abort 晚于 start——把正确性推给未来调用方；(b) Promise.race＋once 监听＋finally 移除（采纳）；(c) 轮询 signal.aborted——引入延迟与忙等。
+- **结论**：采纳 (b)。附带修复 runId 跨 adapter 碰撞（Date.now+per-adapter seq 在共享 registry 下可重复，追加 8 位随机后缀）。
+
+## DEV-S2-5（过程记录）：W2/W3 各有一次红测试状态下误提交（5a83e3c / a993d00 前身），均以独立 fix 提交即刻纠正（7d3aba5 等）；根因为 PowerShell 管道吞掉 npm 退出码，此后门禁一律显式校验 `$LASTEXITCODE`。无验收标准放宽。

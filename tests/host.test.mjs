@@ -367,3 +367,96 @@ await disposedPromise
 assert.ok(disposal.get('r1'))
 
 console.log('host panel registry tests passed')
+
+import { createChatGenerationLauncher, createPanelGenerationAdapter, createParentSideEffectProbe } from '../lib/host/adapters.js'
+
+const probe = createParentSideEffectProbe()
+probe.parent.someMethod()
+probe.parent.another(1, 2)
+assert.ok(probe.emissionCount() >= 2)
+
+process.env.DSH_MINDMAP_HOME = await mkdtemp(join(tmpdir(), 'dsh-chat-mindmap-s2w6-'))
+try {
+  const s2Locks = new GenerationLockRegistry()
+  const s2Registry = new PanelRunRegistry()
+  const adaptScripted = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Adapt', outline: '# Adapt\n## C' } } })
+  const baseRecord = await saveMindmap({ title: 'AdaptBase', document: buildMindmap('# AdaptBase\n## Old'), source: { kind: 'text' } })
+
+  const adapter = createPanelGenerationAdapter({
+    locks: s2Locks,
+    registry: s2Registry,
+    runtime: adaptScripted.runtime,
+    promptSourceOf: async (id) => await getMindmap(id),
+    baselineVersionOf: async (id) => (await getMindmap(id))?.recordVersion,
+  })
+
+  const emissionsBeforeRun = probe.emissionCount()
+  const okView = await adapter.start({ libraryId: baseRecord.libraryId, parent: probe.parent, label: '适配器重建' })
+  assert.equal(okView.status, 'completed')
+  assert.ok(okView.revisionId)
+  assert.equal(adaptScripted.requests.length, 1)
+  assert.equal(adaptScripted.requests[0].request.parent, probe.parent)
+  assert.equal(probe.emissionCount(), emissionsBeforeRun)
+  assert.equal(s2Locks.stateOf(baseRecord.libraryId), undefined)
+
+  await s2Locks.tryAcquire(baseRecord.libraryId, 'external-holder')
+  const busyError = await adapter.start({ libraryId: baseRecord.libraryId }).then(() => null, (e) => e)
+  assert.equal(busyError.code, 'MINDMAP_BUSY')
+  s2Locks.release(baseRecord.libraryId)
+
+  const brokenRuntime = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Broken' } } })
+  const failingAdapter = createPanelGenerationAdapter({
+    locks: s2Locks, registry: s2Registry, runtime: brokenRuntime.runtime,
+    promptSourceOf: async () => makeRecord({ config: { ...baseConfig } }),
+    baselineVersionOf: async () => undefined,
+  })
+  const failedView = await failingAdapter.start({ libraryId: 'map-fresh-fail' })
+  assert.equal(failedView.status, 'failed')
+  assert.ok(failedView.detail.length > 0 && failedView.detail.length <= 500)
+  assert.equal(s2Locks.stateOf('map-fresh-fail'), undefined)
+
+  const missingAdapter = createPanelGenerationAdapter({
+    locks: s2Locks, registry: s2Registry, runtime: adaptScripted.runtime,
+    promptSourceOf: async () => null, baselineVersionOf: async () => undefined,
+  })
+  const missingView2 = await missingAdapter.start({ libraryId: 'map-gone' })
+  assert.equal(missingView2.status, 'failed')
+
+  const gate = scriptedRuntime({})
+  let releaseGated
+  const gatedRuntime = { getProvider: () => ({}), start: async (n, r) => { const out = await gate.runtime.start(n, r); void releaseGated; return out } }
+  void gatedRuntime
+  const longRunning = new PanelRunRegistry()
+  const longLocks = new GenerationLockRegistry()
+  let resolveSlowRun
+  const slowAdapter = createPanelGenerationAdapter({
+    locks: longLocks, registry: longRunning,
+    runtime: { getProvider: () => ({}), start: async (name, request) => {
+      request.signal.addEventListener('abort', () => resolveSlowRun(new Error('aborted')))
+      return { id: 'child-slow', result: new Promise((resolve, reject) => { resolveSlowRun = reject }), dispose: async () => {} }
+    } },
+    promptSourceOf: async () => makeRecord({ config: { ...baseConfig } }),
+    baselineVersionOf: async () => undefined,
+  })
+  const inflight = slowAdapter.start({ libraryId: 'map-inflight' })
+  const disposedAll = longRunning.disposeAll()
+  await inflight.then((v) => { assert.equal(v.status, 'cancelled'); return v }, (e) => { throw e })
+  await disposedAll
+
+  const chatWithoutJobs = createChatGenerationLauncher({ jobs: undefined, runtime: adaptScripted.runtime })
+  assert.equal(chatWithoutJobs.capabilities.jobs, false)
+  const unavailableOutcome = await chatWithoutJobs.launch({ libraryId: baseRecord.libraryId })
+  assert.deepEqual(unavailableOutcome, { mode: 'unavailable', code: 'CAPABILITY_UNAVAILABLE' })
+
+  let jobStarts = 0
+  const chatWithJobs = createChatGenerationLauncher({ jobs: { start: async (input) => { jobStarts += 1; assert.equal(input.libraryId, baseRecord.libraryId); return { id: 'job-1' } } }, runtime: adaptScripted.runtime })
+  assert.equal(chatWithJobs.capabilities.jobs, true)
+  const backgroundOutcome = await chatWithJobs.launch({ libraryId: baseRecord.libraryId })
+  assert.deepEqual(backgroundOutcome, { mode: 'background', jobId: 'job-1' })
+  assert.equal(jobStarts, 1)
+  assert.equal(adaptScripted.requests.length, 1, 'chat launcher must not run outline inline')
+} finally {
+  await rm(process.env.DSH_MINDMAP_HOME, { recursive: true, force: true })
+}
+
+console.log('host adapters tests passed')

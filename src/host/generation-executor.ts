@@ -138,8 +138,19 @@ export async function runOutlineGeneration(
     timedOut = true
     controller.abort()
   }, timeoutMs)
+  // Cancellation must win even when the controller was aborted before the
+  // runtime attached its own signal handling, so every await races an abort
+  // promise that fires immediately for pre-aborted controllers.
+  let abortReject!: (error: Error) => void
+  const abortedPromise = new Promise<never>((_resolve, reject) => {
+    abortReject = reject
+  })
+  abortedPromise.catch(() => undefined)
+  const onAbort = (): void => abortReject(new Error('generation aborted'))
+  if (controller.signal.aborted) onAbort()
+  else controller.signal.addEventListener('abort', onAbort, { once: true })
   try {
-    run = await services.runtime.start(provider, {
+    run = await Promise.race([services.runtime.start(provider, {
       label: input.label ?? '重新构建脑图',
       prompt: [{ type: 'text', text }],
       parent: input.parent,
@@ -148,8 +159,8 @@ export async function runOutlineGeneration(
       maxDepth: 1,
       toolFilter: { allow: [] },
       persona: OUTLINE_PERSONA,
-    })
-    const result = await run.result
+    }), abortedPromise])
+    const result = await Promise.race([run.result, abortedPromise])
     if (controller.signal.aborted) return timedOut ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
     if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || `subagent stopped: ${result.stopReason}`) }
     const validated = validateAgentOutlineResult(result.structured)
@@ -160,6 +171,7 @@ export async function runOutlineGeneration(
     return { kind: 'failed', diagnostic: safeDiagnostic(error) }
   } finally {
     clearTimeout(timer)
+    controller.signal.removeEventListener('abort', onAbort)
     await disposeOnce()
   }
 }
