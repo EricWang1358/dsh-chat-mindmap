@@ -61,3 +61,33 @@ export function normalizeWorkspaceCwd(cwd: string, platform: NodeJS.Platform = p
 export function workspaceKeyOf(cwd: string, platform: NodeJS.Platform = process.platform): string {
   return createHash('sha256').update(normalizeWorkspaceCwd(cwd, platform), 'utf8').digest('hex').slice(0, 32)
 }
+
+export function snapshotOf(document: MindmapDocument, generatedAt: string): GenerationPreviewSnapshot {
+  return { revisionId: revisionIdOf(document), document, generatedAt }
+}
+
+/**
+ * Agent generation commit: rotates current→previous and
+ * previewCurrent→previewPrevious in one pure step. Only two generations of
+ * each kind survive; the third rotation expires the first revision entirely.
+ */
+export function rotateGenerationSnapshots<T extends { current: MindmapDocument; previewCurrent: GenerationPreviewSnapshot }>(record: T, nextDocument: MindmapDocument, generatedAt: string): T {
+  return {
+    ...record,
+    previous: record.current,
+    current: nextDocument,
+    previewPrevious: record.previewCurrent,
+    previewCurrent: snapshotOf(nextDocument, generatedAt),
+  } as T
+}
+
+/** Manual edits only ever replace `current`; previous and previews stay put. */
+export function applyManualEdit<T extends { current: MindmapDocument }>(record: T, nextDocument: MindmapDocument): T {
+  return { ...record, current: nextDocument }
+}
+
+/** Atomic restore primitive: exchanges current/previous, never the previews. */
+export function swapCurrentPrevious<T extends { current: MindmapDocument; previous?: MindmapDocument }>(record: T): T {
+  if (!record.previous) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap has no previous version to restore')
+  return { ...record, current: record.previous, previous: record.current }
+}

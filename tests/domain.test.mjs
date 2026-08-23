@@ -157,3 +157,54 @@ const preKeyed = migrateRecordToV2({ ...JSON.parse(JSON.stringify(v1Record)), wo
 assert.equal(preKeyed.workspaceKey, 'abc123')
 
 console.log('domain records migration tests passed')
+
+import { applyManualEdit, rotateGenerationSnapshots, snapshotOf, swapCurrentPrevious } from '../lib/domain/records.js'
+
+const docs = {
+  A: buildMindmap('# Gen One\n## A-child'),
+  B: buildMindmap('# Gen Two\n## B-child'),
+  C: buildMindmap('# Gen Three\n## C-child'),
+}
+
+const generationOne = migrateRecordToV2({ ...JSON.parse(JSON.stringify(v1Record)), current: docs.A })
+assert.equal(generationOne.previewCurrent.revisionId, revisionIdOf(docs.A))
+
+const generationTwo = rotateGenerationSnapshots(generationOne, docs.B, '2026-01-03T00:00:00.000Z')
+assert.equal(generationTwo.current, docs.B)
+assert.equal(generationTwo.previous, docs.A)
+assert.equal(generationTwo.previewCurrent.revisionId, revisionIdOf(docs.B))
+assert.deepEqual(generationTwo.previewPrevious, generationOne.previewCurrent)
+assert.notEqual(generationTwo.recordVersion, undefined)
+
+const generationThree = rotateGenerationSnapshots(generationTwo, docs.C, '2026-01-04T00:00:00.000Z')
+assert.equal(generationThree.previewCurrent.revisionId, revisionIdOf(docs.C))
+assert.equal(generationThree.previewPrevious.revisionId, revisionIdOf(docs.B))
+const expiredRevision = revisionIdOf(docs.A)
+for (const key of ['current', 'previous', 'previewCurrent', 'previewPrevious']) {
+  const value = generationThree[key]
+  const revisionId = value && value.revisionId ? value.revisionId : value ? revisionIdOf(value) : null
+  assert.ok(revisionId !== expiredRevision, `generation one must expire from ${key}`)
+}
+assert.equal(JSON.stringify(generationThree).includes(expiredRevision), false)
+
+assert.equal(snapshotOf(docs.A, 'x').revisionId, revisionIdOf(docs.A))
+
+const beforeManualEdit = generationThree
+const manuallyEdited = applyManualEdit(generationThree, buildMindmap('# Manual\n## Edit'))
+assert.equal(manuallyEdited.current.title, 'Manual')
+assert.equal(manuallyEdited.previous, beforeManualEdit.previous)
+assert.equal(manuallyEdited.previewCurrent, beforeManualEdit.previewCurrent)
+assert.equal(manuallyEdited.previewPrevious, beforeManualEdit.previewPrevious)
+
+const swapped = swapCurrentPrevious(generationThree)
+assert.equal(swapped.current, docs.B)
+assert.equal(swapped.previous, docs.C)
+assert.equal(swapped.previewCurrent, generationThree.previewCurrent)
+assert.equal(swapped.previewPrevious, generationThree.previewPrevious)
+const swappedBack = swapCurrentPrevious(swapped)
+assert.equal(swappedBack.current, docs.C)
+assert.equal(swappedBack.previous, docs.B)
+
+assert.throws(() => swapCurrentPrevious({ ...generationThree, previous: undefined }), /no previous/)
+
+console.log('domain records rotation tests passed')
