@@ -82,3 +82,40 @@ assert.ok(mixed.text.includes('small note'))
 assert.ok(mixed.text.includes('未附带'))
 
 console.log('host regeneration prompt tests passed')
+
+import { GenerationLockRegistry } from '../lib/host/generation-locks.js'
+
+const registry = new GenerationLockRegistry()
+assert.equal(registry.tryAcquire('map-a', 'run-1')?.state, 'accepted')
+assert.equal(registry.tryAcquire('map-a', 'run-2'), null)
+assert.equal(registry.tryAcquire('map-b', 'run-2')?.state, 'accepted')
+
+const events = []
+registry.transition('map-a', 'running'); events.push('a-running')
+registry.transition('map-b', 'running'); events.push('b-running')
+assert.deepEqual(events, ['a-running', 'b-running'])
+
+for (const terminal of ['completed', 'failed', 'timed_out', 'cancelled']) {
+  const reg = new GenerationLockRegistry()
+  reg.tryAcquire('map-x', 'r')
+  reg.transition('map-x', 'running')
+  reg.transition('map-x', terminal)
+  assert.equal(reg.stateOf('map-x'), terminal)
+  assert.throws(() => reg.transition('map-x', 'failed'), /invalid generation state transition/)
+  assert.equal(reg.release('map-x'), true)
+  assert.equal(reg.release('map-x'), false)
+  assert.equal(reg.tryAcquire('map-x', 'r2')?.state, 'accepted')
+}
+
+const fresh = new GenerationLockRegistry()
+fresh.tryAcquire('m', 'r')
+assert.throws(() => fresh.transition('m', 'completed'), /invalid generation state transition/)
+assert.throws(() => fresh.transition('unknown', 'running'), /invalid generation state transition/)
+assert.equal(fresh.release('unknown'), false)
+try {
+  fresh.transition('m', 'running')
+} catch (error) {
+  assert.equal(error.code, 'INVALID_REQUEST')
+}
+
+console.log('host locks tests passed')
