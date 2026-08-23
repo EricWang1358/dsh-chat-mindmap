@@ -91,3 +91,51 @@ try {
   await rm(process.env.DSH_MINDMAP_HOME, { recursive: true, force: true })
 }
 console.log('library v2 storage tests passed')
+
+process.env.DSH_MINDMAP_HOME = await mkdtemp(join(tmpdir(), 'dsh-chat-mindmap-cas-'))
+try {
+  const base = await saveMindmap({ title: 'CAS', document: buildMindmap('# CAS\n## One'), source: { kind: 'text' } })
+  assert.equal(base.recordVersion, 1)
+  const recordPath = join(process.env.DSH_MINDMAP_HOME, 'maps', `${base.libraryId}.json`)
+  const diskBefore = await readFile(recordPath, 'utf8')
+
+  await assert.rejects(() => updateMindmap(base.libraryId, { title: 'Raced', expectedRecordVersion: 99 }), /mindmap conflict/)
+  await assert.rejects(() => saveMindmap({ libraryId: base.libraryId, title: 'Raced', document: buildMindmap('# Raced'), expectedRecordVersion: 99 }), /mindmap conflict/)
+  assert.equal(await readFile(recordPath, 'utf8'), diskBefore)
+
+  const renamed = await updateMindmap(base.libraryId, { title: 'CAS Wins', expectedRecordVersion: base.recordVersion })
+  assert.equal(renamed.title, 'CAS Wins')
+
+  const current = await getMindmap(base.libraryId)
+  const casDecides = await saveMindmap({ libraryId: base.libraryId, title: 'Both Given', document: buildMindmap('# Both\n## Child'), expectedRecordVersion: current.recordVersion, expectedUpdatedAt: 'bogus-timestamp' })
+  assert.equal(casDecides.title, 'Both Given')
+  await assert.rejects(() => saveMindmap({ libraryId: base.libraryId, title: 'Stale CAS', document: buildMindmap('# Stale\n## Child'), expectedRecordVersion: 1, expectedUpdatedAt: casDecides.updatedAt }), /mindmap conflict/)
+
+  const manualEdited = await updateMindmap(base.libraryId, { document: buildMindmap('# CAS\n## Manual') })
+  assert.equal(manualEdited.previous.root.children?.[0]?.title, 'One')
+  assert.deepEqual(manualEdited.previewCurrent.document, casDecides.current)
+  assert.equal(manualEdited.previewPrevious.revisionId, revisionIdOf(base.current))
+
+  const generationLike = await updateMindmap(base.libraryId, { document: buildMindmap('# CAS\n## Regenerated'), rotatePrevious: true })
+  assert.equal(generationLike.previous.root.children?.[0]?.title, 'Manual')
+  assert.equal(generationLike.previewCurrent.revisionId, revisionIdOf(generationLike.current))
+  assert.equal(generationLike.previewPrevious.revisionId, revisionIdOf(casDecides.current))
+
+  const restored = await restorePreviousMindmap(base.libraryId)
+  assert.equal(restored.current.root.children?.[0]?.title, 'Manual')
+  assert.equal(restored.previous.root.children?.[0]?.title, 'Regenerated')
+  assert.deepEqual(restored.previewCurrent, generationLike.previewCurrent)
+  assert.ok(restored.recordVersion > generationLike.recordVersion)
+
+  const restoredBack = await restorePreviousMindmap(base.libraryId)
+  assert.equal(restoredBack.current.root.children?.[0]?.title, 'Regenerated')
+
+  await assert.rejects(() => restorePreviousMindmap(base.libraryId, { expectedRecordVersion: 1 }), /mindmap conflict/)
+  assert.equal(await restorePreviousMindmap('map-missing-xyz'), null)
+
+  const fresh = await saveMindmap({ title: 'NoPrev', document: buildMindmap('# NoPrev') })
+  await assert.rejects(() => restorePreviousMindmap(fresh.libraryId), /no previous/)
+} finally {
+  await rm(process.env.DSH_MINDMAP_HOME, { recursive: true, force: true })
+}
+console.log('library cas restore tests passed')

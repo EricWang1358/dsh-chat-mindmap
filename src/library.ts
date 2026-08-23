@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { countMindmapNodes, validateMindmapDocument, type MindmapDocument } from './core.js'
-import { isSchemaV2Record, LEGACY_UNSCOPED_WORKSPACE, migrateRecordToV2, snapshotOf, type GenerationPreviewSnapshot } from './domain/records.js'
+import { isSchemaV2Record, LEGACY_UNSCOPED_WORKSPACE, migrateRecordToV2, snapshotOf, swapCurrentPrevious, type GenerationPreviewSnapshot } from './domain/records.js'
 import { DEFAULT_MINDMAP_CONFIG as DEFAULT_CONFIG } from './domain/settings.js'
 
 export interface MindmapConfig {
@@ -282,6 +282,18 @@ function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
   return run
 }
 
+async function persistMindmapRecord(record: MindmapRecord): Promise<void> {
+  const serialized = JSON.stringify(record)
+  await ensureStorageBudget(record.libraryId, Buffer.byteLength(serialized, 'utf8'))
+  await atomicJson(mapPath(record.libraryId), record)
+  const ids = await readIndex()
+  if (!ids.includes(record.libraryId)) ids.push(record.libraryId)
+  await atomicJson(indexPath(), ids)
+  const summaries = (await readSummaryIndex()).filter((entry) => entry.libraryId !== record.libraryId)
+  summaries.push(summaryOf(record))
+  await writeSummaryIndex(summaries)
+}
+
 export async function listMindmaps(filters?: { workspaceId?: string; sessionId?: string; archived?: boolean }): Promise<MindmapSummary[]> {
   const sourceMatches = (summary: SummaryIndexEntry) => summaryMatches(summary, filters)
   const ids = await readIndex()
@@ -320,11 +332,17 @@ export async function saveMindmap(input: {
   archived?: boolean
   rotatePrevious?: boolean
   expectedUpdatedAt?: string
+  expectedRecordVersion?: number
 }): Promise<MindmapRecord> {
   return enqueueWrite(async () => {
     const id = input.libraryId ? safeId(input.libraryId) : uid()
     const existing = await readRecord(id)
-    if (input.expectedUpdatedAt && existing?.updatedAt !== input.expectedUpdatedAt) throw new Error('mindmap conflict')
+    // Optimistic concurrency: when a record version is supplied it alone
+    // decides (it is the stricter, generation-aware token); the legacy
+    // updatedAt token only applies when no version was provided.
+    if (typeof input.expectedRecordVersion === 'number') {
+      if (!existing || existing.recordVersion !== input.expectedRecordVersion) throw new Error('mindmap conflict')
+    } else if (input.expectedUpdatedAt && existing?.updatedAt !== input.expectedUpdatedAt) throw new Error('mindmap conflict')
     const config = normalizeConfig({ ...existing?.config, ...input.config })
     const document = validateMindmapDocument(input.document, { maxNodes: config.maxNodes, maxDepth: 32 })
     const now = new Date().toISOString()
@@ -352,15 +370,7 @@ export async function saveMindmap(input: {
     }
     record.recordVersion += 1
     if (!record.recordVersion || record.recordVersion < 1) record.recordVersion = 1
-    const serialized = JSON.stringify(record)
-    await ensureStorageBudget(id, Buffer.byteLength(serialized, 'utf8'))
-    await atomicJson(mapPath(id), record)
-    const ids = await readIndex()
-    if (!ids.includes(id)) ids.push(id)
-    await atomicJson(indexPath(), ids)
-    const summaries = (await readSummaryIndex()).filter((entry) => entry.libraryId !== id)
-    summaries.push(summaryOf(record))
-    await writeSummaryIndex(summaries)
+    await persistMindmapRecord(record)
     return record
   })
 }
@@ -371,11 +381,13 @@ export async function updateMindmap(id: string, patch: {
   config?: Partial<MindmapConfig>
   archived?: boolean
   rotatePrevious?: boolean
+  expectedRecordVersion?: number
 }): Promise<MindmapRecord | null> {
   return enqueueWrite(async () => {
     const safeLibraryId = safeId(id)
     const existing = await readRecord(safeLibraryId)
     if (!existing) return null
+    if (typeof patch.expectedRecordVersion === 'number' && existing.recordVersion !== patch.expectedRecordVersion) throw new Error('mindmap conflict')
     const config = normalizeConfig({ ...existing.config, ...patch.config })
     const document = patch.document ? validateMindmapDocument(patch.document, { maxNodes: config.maxNodes, maxDepth: 32 }) : existing.current
     const now = new Date().toISOString()
@@ -401,16 +413,22 @@ export async function updateMindmap(id: string, patch: {
       createdAt: existing.createdAt,
       updatedAt: now,
     }
-    const serialized = JSON.stringify(record)
-    await ensureStorageBudget(safeLibraryId, Buffer.byteLength(serialized, 'utf8'))
-    await atomicJson(mapPath(safeLibraryId), record)
-    const ids = await readIndex()
-    if (!ids.includes(safeLibraryId)) ids.push(safeLibraryId)
-    await atomicJson(indexPath(), ids)
-    const summaries = (await readSummaryIndex()).filter((entry) => entry.libraryId !== safeLibraryId)
-    summaries.push(summaryOf(record))
-    await writeSummaryIndex(summaries)
+    await persistMindmapRecord(record)
     return record
+  })
+}
+
+export async function restorePreviousMindmap(id: string, options?: { expectedRecordVersion?: number }): Promise<MindmapRecord | null> {
+  return enqueueWrite(async () => {
+    const safeLibraryId = safeId(id)
+    const existing = await readRecord(safeLibraryId)
+    if (!existing) return null
+    if (typeof options?.expectedRecordVersion === 'number' && existing.recordVersion !== options.expectedRecordVersion) throw new Error('mindmap conflict')
+    const swapped = swapCurrentPrevious(existing)
+    swapped.recordVersion = existing.recordVersion + 1
+    swapped.updatedAt = new Date().toISOString()
+    await persistMindmapRecord(swapped)
+    return swapped
   })
 }
 
