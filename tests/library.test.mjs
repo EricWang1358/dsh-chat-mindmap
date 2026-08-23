@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildMindmap } from '../lib/core.js'
-import { archiveMindmap, deleteMindmap, getMindmap, listMindmaps, saveMindmap, updateMindmap } from '../lib/library.js'
+import { archiveMindmap, deleteMindmap, getMindmap, listMindmaps, restorePreviousMindmap, saveMindmap, updateMindmap } from '../lib/library.js'
 import { revisionIdOf } from '../lib/revisions.js'
 
 const root = await mkdtemp(join(tmpdir(), 'dsh-chat-mindmap-'))
