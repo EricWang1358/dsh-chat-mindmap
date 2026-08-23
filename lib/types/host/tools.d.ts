@@ -22,6 +22,10 @@ export interface MindmapJobRegistryLike {
     start(spec: MindmapJobSpecLike): string;
 }
 export declare const TIMEOUT_OUTPUT = "mindmap failed: code=GENERATION_TIMEOUT. Generation exceeded 180 seconds.";
+/** Canonical slim source validation; the frozen legacy parser in index.ts is superseded at integration switchover (D-S3-5). Shared with REST V2 routes. */
+export declare function parseLaunchSource(value: unknown): MindmapSource | undefined;
+/** Canonical partial config validation for NEW maps only (D-S3-6). Shared with REST V2 routes. */
+export declare function parseLaunchConfig(value: unknown): Partial<MindmapConfig> | undefined;
 export interface LaunchInput {
     context?: string;
     title?: string;

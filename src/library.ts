@@ -437,9 +437,16 @@ export async function archiveMindmap(id: string, archived = true): Promise<Mindm
   return updateMindmap(id, { archived })
 }
 
-export async function deleteMindmap(id: string): Promise<boolean> {
+export async function deleteMindmap(id: string, options?: { expectedRecordVersion?: number }): Promise<boolean> {
   return enqueueWrite(async () => {
     const safeLibraryId = safeId(id)
+    // REST V2 CAS (§11): a stale version must never delete a concurrently
+    // edited map; checked inside the write queue so the read-modify-delete
+    // stays atomic.
+    if (typeof options?.expectedRecordVersion === 'number') {
+      const existing = await readRecord(safeLibraryId)
+      if (existing && existing.recordVersion !== options.expectedRecordVersion) throw new DomainError('MINDMAP_CONFLICT', 'mindmap conflict')
+    }
     const ids = await readIndex()
     if (!ids.includes(safeLibraryId)) return false
     await atomicJson(indexPath(), ids.filter((value) => value !== safeLibraryId))

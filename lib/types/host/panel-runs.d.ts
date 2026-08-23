@@ -28,6 +28,8 @@ export declare class PanelRunRegistry {
     update(runId: string, patch: PanelRunPatch): PanelRunView | null;
     getViewOrInterrupted(runId: string): PanelRunView;
     trackCompletion(promise: Promise<unknown>): void;
+    /** Abort one in-flight run; false when the run is unknown or already settled. */
+    cancel(runId: string): boolean;
     /** Plugin dispose path: abort everything in flight, then await quiescence. */
     disposeAll(): Promise<void>;
 }

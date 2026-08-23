@@ -58,6 +58,14 @@ export class PanelRunRegistry {
     this.completions.add(tracked)
   }
 
+  /** Abort one in-flight run; false when the run is unknown or already settled. */
+  cancel(runId: string): boolean {
+    const controller = this.controllers.get(runId)
+    if (!controller) return false
+    if (!controller.signal.aborted) controller.abort()
+    return true
+  }
+
   /** Plugin dispose path: abort everything in flight, then await quiescence. */
   async disposeAll(): Promise<void> {
     for (const controller of this.controllers.values()) {

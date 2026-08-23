@@ -81,8 +81,8 @@ function optionalString(value: unknown, field: string, maxLength: number): strin
 
 const SOURCE_KINDS = new Set(['text', 'pdf', 'image', 'document', 'chat', 'unknown'])
 
-/** Canonical slim source validation; the frozen legacy parser in index.ts is superseded at integration switchover (D-S3-5). */
-function parseLaunchSource(value: unknown): MindmapSource | undefined {
+/** Canonical slim source validation; the frozen legacy parser in index.ts is superseded at integration switchover (D-S3-5). Shared with REST V2 routes. */
+export function parseLaunchSource(value: unknown): MindmapSource | undefined {
   if (typeof value === 'undefined') return undefined
   if (!isRecord(value)) throw new DomainError('INVALID_REQUEST', 'source must be an object')
   const kind = optionalString(value.kind, 'source.kind', 32)
@@ -97,8 +97,8 @@ function parseLaunchSource(value: unknown): MindmapSource | undefined {
 
 const DENSITIES = new Set(['compact', 'standard', 'detailed'])
 
-/** Canonical partial config validation for NEW maps only (D-S3-6). */
-function parseLaunchConfig(value: unknown): Partial<MindmapConfig> | undefined {
+/** Canonical partial config validation for NEW maps only (D-S3-6). Shared with REST V2 routes. */
+export function parseLaunchConfig(value: unknown): Partial<MindmapConfig> | undefined {
   if (typeof value === 'undefined') return undefined
   if (!isRecord(value)) throw new DomainError('INVALID_REQUEST', 'config must be an object')
   const config: Partial<MindmapConfig> = {}

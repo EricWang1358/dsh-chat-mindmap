@@ -75,4 +75,6 @@ export declare function restorePreviousMindmap(id: string, options?: {
     expectedRecordVersion?: number;
 }): Promise<MindmapRecord | null>;
 export declare function archiveMindmap(id: string, archived?: boolean): Promise<MindmapRecord | null>;
-export declare function deleteMindmap(id: string): Promise<boolean>;
+export declare function deleteMindmap(id: string, options?: {
+    expectedRecordVersion?: number;
+}): Promise<boolean>;
