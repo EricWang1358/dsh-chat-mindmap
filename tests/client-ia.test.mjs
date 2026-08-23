@@ -23,7 +23,7 @@ const expectations = {
   capability: '脑图能力不可用',
 }
 for (const [kind, headline] of Object.entries(expectations)) {
-  const html = renderToStaticMarkup(createElement(EmptyState, { kind }))
+  const html = renderToStaticMarkup(createElement(EmptyState, { kind, localeId: 'zh' }))
   assert.ok(html.includes(headline), 'empty state ' + kind + ' must render its headline')
 }
 const capHtml = renderToStaticMarkup(createElement(EmptyState, { kind: 'capability' }))
