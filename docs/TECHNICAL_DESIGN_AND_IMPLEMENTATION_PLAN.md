@@ -287,7 +287,7 @@ interface GenerationOutcome {
 ### 8.3 Subagent 配置
 
 - 继承 parent 的 provider/model。
-- `maxTokens` 固定上限，初始建议 6000；Gate 0 用 30/120/300 节点样本校准。
+- `maxTokens` 固定上限，编译期稳定性策略常量取 6000（ADR-008）；Gate 0 的 30/120/300 节点样本校准证据归入 live verification runbook，缺失不作为 Phase 2 阻塞项。
 - persona：仅做来源到层级大纲的转换，不调用 skills，不讨论过程，不执行副作用。
 - `outputSchema`：`{ title: string, outline: string }`。
 - `toolFilter`：默认 deny all；只有 Gate 0 证明某来源必须读取官方附件/文件工具时才最小放行。
@@ -670,6 +670,11 @@ rc8 适配结论：官方 `ImageLightbox` 不在公开导出面，因此第 5 �
 - `src/host/panel-runs.ts`
 - fake subagent/jobs integration tests
 
+本阶段交付约束（S2 设计增量评审，见 `docs/plans/S2_DESIGN_DELTA_REVIEW.md`）：
+
+- 不得修改 `src/index.ts` 与 `inject` 装配；chat/panel adapter 以工厂函数或纯装配模块＋fake 驱动测试交付，由集成阶段统一接线。
+- 现存 `startPanelRegeneration` 旧路径冻结：禁止增强；prompt 逻辑以 `src/host/generation-executor.ts` 导出实现为唯一规范副本，集成期一次性切换并删除旧副本。
+
 交付：
 
 - GenerationExecutor。
@@ -856,6 +861,7 @@ rc8 适配结论：官方 `ImageLightbox` 不在公开导出面，因此第 5 �
 - ADR-005：只保留两代预览文档，SVG 浏览器按需生成且不落盘。
 - ADR-006：workspace scope 使用 session cwd 的规范化 hash。
 - ADR-007：官方能力缺失时禁用相关功能，不维护旧 setDraft 工作流。
+- ADR-008：`maxTokens=6000` 为编译期稳定性策略常量；Gate 0 样本校准证据延后至 live verification runbook，缺失不阻塞编排层实施。
 
 ## 25. Definition of Done
 
