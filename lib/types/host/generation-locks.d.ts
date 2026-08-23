@@ -17,4 +17,8 @@ export declare class GenerationLockRegistry {
     transition(libraryId: string, next: GenerationRunState): void;
     release(libraryId: string): boolean;
     stateOf(libraryId: string): GenerationRunState | undefined;
+    /** Read-only census for the dispose-to-zero invariant (S3-W6, R2-2). */
+    size(): number;
+    /** Plugin dispose path: drop every live lock without transitions. */
+    disposeAll(): void;
 }

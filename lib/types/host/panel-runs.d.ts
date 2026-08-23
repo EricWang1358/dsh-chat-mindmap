@@ -25,6 +25,8 @@ export declare class PanelRunRegistry {
     private completions;
     register(view: PanelRunView, controller?: AbortController): PanelRunView;
     get(runId: string): PanelRunView | undefined;
+    /** Read-only census for the dispose-to-zero invariant (S3-W6, R2-2). */
+    size(): number;
     update(runId: string, patch: PanelRunPatch): PanelRunView | null;
     getViewOrInterrupted(runId: string): PanelRunView;
     trackCompletion(promise: Promise<unknown>): void;

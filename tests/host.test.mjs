@@ -364,7 +364,10 @@ assert.equal(secondController.signal.aborted, true)
 secondResolve()
 firstResolve()
 await disposedPromise
-assert.ok(disposal.get('r1'))
+// S3-W6 (R2-2): dispose drops the whole registry — lookups fall through to
+// the interrupted fallback exactly like an unknown runId.
+assert.equal(disposal.get('r1'), undefined)
+assert.equal(disposal.getViewOrInterrupted('r1').detail, INTERRUPTED_DETAIL)
 
 console.log('host panel registry tests passed')
 

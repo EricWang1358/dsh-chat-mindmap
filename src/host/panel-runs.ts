@@ -38,6 +38,11 @@ export class PanelRunRegistry {
     return this.runs.get(runId)
   }
 
+  /** Read-only census for the dispose-to-zero invariant (S3-W6, R2-2). */
+  size(): number {
+    return this.runs.size
+  }
+
   update(runId: string, patch: PanelRunPatch): PanelRunView | null {
     const view = this.runs.get(runId)
     if (!view) return null
@@ -73,5 +78,9 @@ export class PanelRunRegistry {
     }
     await Promise.allSettled([...this.completions])
     this.completions.clear()
+    // S3-W6 (R2-2): plugin dispose drops the whole registry — post-dispose
+    // lookups fall through to the interrupted detail like an unknown runId.
+    this.controllers.clear()
+    this.runs.clear()
   }
 }

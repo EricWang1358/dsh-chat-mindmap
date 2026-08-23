@@ -41,4 +41,14 @@ export class GenerationLockRegistry {
   stateOf(libraryId: string): GenerationRunState | undefined {
     return this.locks.get(libraryId)?.state
   }
+
+  /** Read-only census for the dispose-to-zero invariant (S3-W6, R2-2). */
+  size(): number {
+    return this.locks.size
+  }
+
+  /** Plugin dispose path: drop every live lock without transitions. */
+  disposeAll(): void {
+    this.locks.clear()
+  }
 }
