@@ -96,3 +96,27 @@ assert.equal(JSON.stringify(mergedRequest), mergedRequestSnapshot)
 assert.deepEqual(resolveNewRecordConfig(custom, mergedRequest), merged)
 
 console.log('domain settings tests passed')
+
+import { normalizeWorkspaceCwd, workspaceKeyOf } from '../lib/domain/records.js'
+
+const winVariants = ['D:\\A\\Dir', 'd:\\a\\dir', 'D:/A/Dir/', '\\\\?\\D:\\A\\Dir', 'D:\\\\A\\\\Dir']
+const winNormalized = new Set(winVariants.map((sample) => normalizeWorkspaceCwd(sample, 'win32')))
+assert.equal(winNormalized.size, 1)
+assert.equal(normalizeWorkspaceCwd('C:\\', 'win32'), 'c:\\')
+
+const posixVariants = ['/tmp/work/', '/tmp//work']
+assert.deepEqual(posixVariants.map((sample) => normalizeWorkspaceCwd(sample, 'linux')), ['/tmp/work', '/tmp/work'])
+assert.notEqual(normalizeWorkspaceCwd('/tmp/Work', 'darwin'), normalizeWorkspaceCwd('/tmp/work', 'darwin'))
+
+assert.notEqual(workspaceKeyOf('/srv/maps', 'linux'), workspaceKeyOf('D:\\maps', 'win32'))
+for (const sample of winVariants) assert.equal(workspaceKeyOf(sample, 'win32'), workspaceKeyOf('D:\\A\\Dir', 'win32'))
+
+const key = workspaceKeyOf('/tmp/work', 'linux')
+assert.match(key, /^[a-f0-9]{32}$/)
+
+assert.throws(() => normalizeWorkspaceCwd('relative/path', 'win32'), /absolute/)
+assert.throws(() => normalizeWorkspaceCwd('relative/path', 'linux'), /absolute/)
+assert.throws(() => normalizeWorkspaceCwd('', 'linux'), /required/)
+assert.throws(() => normalizeWorkspaceCwd(null, 'linux'), /required/)
+
+console.log('domain workspace tests passed')
