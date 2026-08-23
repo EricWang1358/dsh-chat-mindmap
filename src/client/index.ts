@@ -1,10 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { createElement, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactElement } from 'react'
-import { createPortal } from 'react-dom'
 import type { MindmapDocument, MindmapNode } from '../core.js'
+import { getBlobUrlLru } from './components/blob-url-lru.js'
+import { MindmapToolCard, registerSnapshotFetcher } from './components/MindmapToolCard.js'
 
 const PLUGIN_ID = '@ericwang1358/dsh-chat-mindmap'
 const API_BASE = '/@ericwang1358/dsh-chat-mindmap'
@@ -361,102 +361,6 @@ function MapCanvas({ record, onDocumentChange, onXmind, onActions, onFullscreenC
   )
 }
 
-type MindmapPreviewReference = { libraryId: string; revisionId: string; title: string; nodeCount: number; state: 'available' | 'expired'; capabilityNote?: string }
-type MindmapPreviewPayload = { libraryId: string; revisionId: string; title: string; document: MindmapDocument; config: MindmapConfig }
-
-function previewReference(block: ToolCallViewProps['block']): MindmapPreviewReference | null {
-  if (!('kind' in block)) return null
-  for (const item of block.content) {
-    if (!item || typeof item !== 'object' || !('type' in item) || item.type !== 'text' || !('text' in item) || typeof item.text !== 'string') continue
-    const prefix = 'dsh-chat-mindmap-preview:'
-    if (!item.text.startsWith(prefix)) continue
-    try {
-      const value = JSON.parse(item.text.slice(prefix.length)) as Partial<MindmapPreviewReference>
-      if (typeof value.libraryId === 'string' && typeof value.revisionId === 'string' && typeof value.title === 'string' && typeof value.nodeCount === 'number' && (value.state === 'available' || value.state === 'expired')) return value as MindmapPreviewReference
-    } catch { /* A generic tool card remains available for malformed old history. */ }
-  }
-  return null
-}
-
-async function svgPreview(mindmap: MindmapDocument, config: MindmapConfig): Promise<string> {
-  const host = window.document.createElement('div')
-  host.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1200px;height:800px;pointer-events:none;'
-  window.document.body.append(host)
-  let instance: MindMapLike | null = null
-  try {
-    const MindMap = await loadMindMap()
-    instance = new MindMap({ el: host, data: toSimpleMindMapData(mindmap.root), layout: config.layout, theme: 'default', themeConfig: themePreset(config.theme).config, fit: true })
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())))
-    const value = await instance.doExport?.export('svg', false, mindmap.title, instance.getData?.(false))
-    const blob = asBlob(value)
-    if (!blob || blob.type !== 'image/svg+xml') throw new Error('SVG preview export failed')
-    return URL.createObjectURL(blob)
-  } finally {
-    instance?.destroy?.()
-    host.remove()
-  }
-}
-
-function MindmapToolCard({ block }: ToolCallViewProps): ReactElement {
-  const reference = previewReference(block)
-  const [url, setUrl] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    let alive = true
-    let objectUrl: string | null = null
-    setUrl(null)
-    setError(null)
-    setOpen(false)
-    if (!reference || reference.state === 'expired') return () => undefined
-    void api<MindmapPreviewPayload>(`/maps/${encodeURIComponent(reference.libraryId)}/revisions/${encodeURIComponent(reference.revisionId)}`).then(async (preview) => {
-      const nextUrl = await svgPreview(preview.document, preview.config)
-      if (alive) {
-        objectUrl = nextUrl
-        setUrl(nextUrl)
-      } else {
-        URL.revokeObjectURL(nextUrl)
-      }
-    }).catch(() => { if (alive) setError('脑图预览已失效或无法生成') })
-    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [reference?.libraryId, reference?.revisionId, reference?.state])
-
-  if (!reference) return createElement('div', { style: { padding: '8px', opacity: .7 } }, '脑图预览数据不可用')
-  if (reference.state === 'expired') return createElement('div', { style: { padding: '8px', opacity: .7 } }, '本图已失效')
-  return createElement('section', { style: { padding: '10px', border: '1px solid var(--dsw-alias-border-l2,#475569)', borderRadius: '8px', maxWidth: '620px' } },
-    createElement('strong', null, reference.title),
-    createElement('small', { style: { display: 'block', opacity: .7, marginBottom: '8px' } }, `${reference.nodeCount} 节点 · SVG 预览`),
-     reference.capabilityNote ? createElement('small', { style: { display: 'block', opacity: .62, marginBottom: '8px' }, role: 'note' }, reference.capabilityNote) : null,
-    error ? createElement('span', { role: 'status' }, error) : url ? createElement('button', { type: 'button', onClick: () => setOpen(true), style: { display: 'block', padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }, 'aria-label': `打开 ${reference.title} SVG 预览` }, createElement('img', { src: url, alt: `${reference.title} 思维导图`, style: { display: 'block', maxWidth: '100%', maxHeight: '360px', background: 'var(--dsw-alias-bg-base,#fff)', borderRadius: '6px' } })) : createElement('span', { role: 'status' }, '正在生成 SVG 预览…'),
-    open && url ? createElement(SvgPreviewDialog, { src: url, alt: `${reference.title} 思维导图`, onClose: () => setOpen(false) }) : null,
-  )
-}
-
-/**
- * rc.8 intentionally does not export the attachment package's internal
- * ImageLightbox. Keep previewing functional through the platform dialog
- * primitive instead of importing an unsupported private source path.
- */
-function SvgPreviewDialog({ src, alt, onClose }: { src: string; alt: string; onClose(): void }): ReactElement {
-  const closeRef = useRef<HTMLButtonElement>(null)
-  const restoreFocusRef = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    restoreFocusRef.current = window.document.activeElement instanceof HTMLElement ? window.document.activeElement : null
-    closeRef.current?.focus()
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown); restoreFocusRef.current?.focus() }
-  }, [onClose])
-  return createPortal(createElement('div', { role: 'dialog', 'aria-modal': true, 'aria-label': '脑图 SVG 预览', style: { position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center' } },
-    createElement('button', { type: 'button', 'aria-label': '关闭预览', onClick: onClose, style: { position: 'absolute', inset: 0, border: 0, background: 'rgba(2,6,23,.78)', cursor: 'default' } }),
-    createElement('section', { style: { position: 'relative', zIndex: 1, maxWidth: '92vw', maxHeight: '92vh', padding: '12px', background: 'var(--dsw-alias-bg-base,#0f172a)', borderRadius: '10px' } },
-      createElement('img', { src, alt, style: { display: 'block', maxWidth: '88vw', maxHeight: '82vh', background: 'var(--dsw-alias-bg-base,#fff)' } }),
-      createElement('button', { ref: closeRef, type: 'button', onClick: onClose, style: { ...buttonStyle(), marginTop: '8px' } }, '关闭预览'),
-    ),
-  ), window.document.body)
-}
-
 function BrainmapView(props: ConvViewProps & { sessions: SessionService }): ReactElement {
   const sessionId = props.sessionId
   const [maps, setMaps] = useState<MindmapSummary[]>([])
@@ -617,5 +521,10 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.slots.inject('conversation.view', () => ctx.slots.register({ name: 'conversation.view', id: `${PLUGIN_ID}-panel`, order: 20, label: () => '脑图', inject: (sessionId: string) => ({ sessions: ctx.sessions, sessionId }) }, BrainmapView as never)), `${PLUGIN_ID}: brainmap view`)
+  // R1-4 dependency injection: the card module never touches this private api().
+  const fetcherDispose = registerSnapshotFetcher((libraryId, revisionId) => api(`/maps/${encodeURIComponent(libraryId)}/revisions/${encodeURIComponent(revisionId)}`))
+  ctx.effect(() => fetcherDispose, `${PLUGIN_ID}: snapshot fetcher`)
+  // R2-2: plugin unload revokes every thumbnail URL the module-scoped LRU owns.
+  ctx.effect(() => () => { getBlobUrlLru().disposeAll() }, `${PLUGIN_ID}: thumbnail LRU dispose`)
   ctx.effect(() => ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: 'present_chat_mindmap' }, MindmapToolCard as never)), `${PLUGIN_ID}: chat SVG preview`)
 }
