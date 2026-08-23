@@ -1,4 +1,5 @@
 import { type MindmapDocument } from './core.js';
+import { type GenerationPreviewSnapshot } from './domain/records.js';
 export interface MindmapConfig {
     layout: string;
     density: 'compact' | 'standard' | 'detailed';
@@ -18,10 +19,15 @@ export interface MindmapSource {
     metadata?: Record<string, string>;
 }
 export interface MindmapRecord {
+    schemaVersion: 2;
+    recordVersion: number;
     libraryId: string;
     title: string;
+    workspaceKey?: string;
     current: MindmapDocument;
     previous?: MindmapDocument;
+    previewCurrent?: GenerationPreviewSnapshot;
+    previewPrevious?: GenerationPreviewSnapshot;
     config: MindmapConfig;
     source?: MindmapSource;
     archived?: boolean;
@@ -39,7 +45,7 @@ export interface MindmapSummary {
     archived: boolean;
     nodeCount: number;
 }
-export declare const DEFAULT_CONFIG: MindmapConfig;
+export { DEFAULT_MINDMAP_CONFIG as DEFAULT_CONFIG } from './domain/settings.js';
 export declare function listMindmaps(filters?: {
     workspaceId?: string;
     sessionId?: string;
@@ -55,6 +61,7 @@ export declare function saveMindmap(input: {
     archived?: boolean;
     rotatePrevious?: boolean;
     expectedUpdatedAt?: string;
+    expectedRecordVersion?: number;
 }): Promise<MindmapRecord>;
 export declare function updateMindmap(id: string, patch: {
     title?: string;
@@ -62,6 +69,10 @@ export declare function updateMindmap(id: string, patch: {
     config?: Partial<MindmapConfig>;
     archived?: boolean;
     rotatePrevious?: boolean;
+    expectedRecordVersion?: number;
+}): Promise<MindmapRecord | null>;
+export declare function restorePreviousMindmap(id: string, options?: {
+    expectedRecordVersion?: number;
 }): Promise<MindmapRecord | null>;
 export declare function archiveMindmap(id: string, archived?: boolean): Promise<MindmapRecord | null>;
 export declare function deleteMindmap(id: string): Promise<boolean>;
