@@ -191,12 +191,12 @@ interface MindmapRecordV2 {
 
 - `current` 是可编辑文档。
 - `previous` 是上次重新生成前的可编辑文档。
-- `previewCurrent` 是最近一次 Agent 生成完成时的不可变快照。
-- `previewPrevious` 是再前一次 Agent 生成完成时的不可变快照。
+- `previewCurrent` 是最近一次 Agent 生成完成时的不可变快照；记录创建时即以初始文档快照初始化（创建视为第 0 代生成），因此手动新建的脑图同样拥有稳定预览代次。
+- `previewPrevious` 是再前一次 Agent 生成完成时的不可变快照；在第二次生成前不存在。
 - 手动编辑只改 `current`。
 - Agent 生成同时旋转 `current/previous` 与 `previewCurrent/previewPrevious`。
 - 恢复操作只交换 `current/previous`，不篡改聊天预览快照。
-- `revisionId` 使用随机 UUID 派生的 URL-safe id，不复用时间戳。
+- `revisionId` 的规范实现为内容寻址确定性 id（规范化 JSON 的 SHA-256 截断，见 `revisionIdOf`），V1 legacy 迁移与 V2 快照统一使用；它满足「不复用时间戳」与跨读取稳定要求。随机 UUID 派生 id 仅允许在与 revision 路由白名单同步更新的变更中引入。
 - `recordVersion` 是每次成功写入都递增的乐观并发版本；自动保存、外观修改、恢复和重新生成都必须带 expected version。
 
 ### 6.2 Workspace 隔离
