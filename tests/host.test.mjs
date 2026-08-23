@@ -259,3 +259,71 @@ assert.equal(happySlow.kind, 'completed')
 assert.equal(happyPath.disposedCount, 1)
 
 console.log('host timeout cleanup tests passed')
+
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { commitGenerationOutcome } from '../lib/host/generation-executor.js'
+import { reserveLibraryId } from '../lib/domain/records.js'
+import { getMindmap, saveMindmap, updateMindmap } from '../lib/library.js'
+
+assert.match(reserveLibraryId(1_800_000_000_000, 'abcdef123456'), /^map-[0-9a-z]+-[0-9a-f]{12}$/)
+assert.equal(reserveLibraryId(0, '000000000000'), 'map-0-000000000000')
+assert.notEqual(reserveLibraryId(), undefined)
+
+process.env.DSH_MINDMAP_HOME = await mkdtemp(join(tmpdir(), 'dsh-chat-mindmap-s2w4-'))
+try {
+  const base = await saveMindmap({ title: 'W4', document: buildMindmap('# W4\n## A'), source: { kind: 'text' } })
+  const recordPath = join(process.env.DSH_MINDMAP_HOME, 'maps', `${base.libraryId}.json`)
+  const sha = async () => createHash('sha256').update(await readFile(recordPath, 'utf8')).digest('hex')
+
+  await updateMindmap(base.libraryId, { title: 'Edited during generation' })
+  const protectedState = await sha()
+
+  let conflictError = null
+  try {
+    await commitGenerationOutcome({ libraryId: base.libraryId, document: buildMindmap('# Gen\n## Result'), title: 'Gen', config: base.config, source: base.source, baselineRecordVersion: base.recordVersion })
+  } catch (error) {
+    conflictError = error
+  }
+  assert.ok(conflictError)
+  assert.equal(conflictError.code, 'MINDMAP_CONFLICT')
+  assert.equal(conflictError.message, 'mindmap conflict')
+  assert.equal(await sha(), protectedState)
+
+  let invalidError = null
+  try {
+    await commitGenerationOutcome({ libraryId: base.libraryId, document: { version: 1 }, title: 'Broken', config: base.config })
+  } catch (error) {
+    invalidError = error
+  }
+  assert.ok(invalidError)
+  assert.equal(await sha(), protectedState)
+
+  let resolveSave
+  const fakeSaved = { ...base, current: buildMindmap('# Ordered\n## Save-first'), recordVersion: 99 }
+  const orderedPending = commitGenerationOutcome(
+    { libraryId: base.libraryId, document: buildMindmap('# Ordered\n## Save-first'), title: 'Ordered', config: base.config },
+    { save: () => new Promise((resolve) => { resolveSave = () => resolve(fakeSaved) }) },
+  )
+  let settled = false
+  orderedPending.then(() => { settled = true }, () => {})
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(settled, false)
+  resolveSave()
+  const ordered = await orderedPending
+  assert.equal(ordered.recordVersion, 99)
+  await Promise.resolve()
+  assert.equal(settled, true)
+
+  const freshId = reserveLibraryId(Date.now())
+  const created = await commitGenerationOutcome({ libraryId: freshId, document: buildMindmap('# Fresh\n## New'), title: 'Fresh', config: base.config })
+  assert.equal(created.libraryId, freshId)
+  assert.equal((await getMindmap(freshId)).current.root.children?.[0]?.title, 'New')
+} finally {
+  await rm(process.env.DSH_MINDMAP_HOME, { recursive: true, force: true })
+}
+
+console.log('host commit transaction tests passed')

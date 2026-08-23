@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { MindmapDocument } from '../core.js'
 import { revisionIdOf } from '../revisions.js'
 import { DomainError } from './errors.js'
@@ -91,4 +91,9 @@ export function applyManualEdit<T extends { current: MindmapDocument }>(record: 
 export function swapCurrentPrevious<T extends { current: MindmapDocument; previous?: MindmapDocument }>(record: T): T {
   if (!record.previous) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap has no previous version to restore')
   return { ...record, current: record.previous, previous: record.current }
+}
+
+/** ¡ì9.1: pre-allocate a library id without creating any disk record. */
+export function reserveLibraryId(now: number = Date.now(), randomHex: string = randomUUID().replaceAll('-', '').slice(0, 12)): string {
+  return `map-${now.toString(36)}-${randomHex}`
 }

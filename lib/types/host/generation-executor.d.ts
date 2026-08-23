@@ -1,5 +1,6 @@
 import type { MindmapDocument } from '../core.js';
-import type { MindmapRecord } from '../library.js';
+import type { MindmapConfig, MindmapRecord, MindmapSource } from '../library.js';
+import { saveMindmap } from '../library.js';
 /**
  * Canonical regeneration prompt composition (P3 adjudication,
  * docs/plans/S2_DESIGN_DELTA_REVIEW.md). This module is the single normative
@@ -84,3 +85,24 @@ export declare function runOutlineGeneration(services: {
     timeoutMs?: number;
     controller?: AbortController;
 }): Promise<OutlineResult>;
+export interface CommitGenerationInput {
+    libraryId: string;
+    document: MindmapDocument;
+    title: string;
+    config: MindmapConfig;
+    source?: MindmapSource;
+    /** Record version observed when the generation was accepted (§9.1). */
+    baselineRecordVersion?: number;
+}
+export interface CommitDependencies {
+    /** Injectable for deterministic ordering tests; defaults to real storage. */
+    save?: (args: Parameters<typeof saveMindmap>[0]) => Promise<MindmapRecord>;
+}
+/**
+ * §9.1 commit boundary: the fully constructed record is persisted through the
+ * library's compare-and-swap in one atomic write, and the completed outcome is
+ * only returned after the save resolved — "completed ⇒ record readable".
+ * Absent baselines (pre-allocated fresh maps) rely on the generation lock and
+ * omit expectedRecordVersion; see risk R11.
+ */
+export declare function commitGenerationOutcome(input: CommitGenerationInput, deps?: CommitDependencies): Promise<MindmapRecord>;

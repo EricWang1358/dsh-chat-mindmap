@@ -1,7 +1,8 @@
 import { buildStrictOutlineDocument, validateAgentOutlineResult } from '../domain/generation.js'
 import { mindmapNodeNotesForPrompt, mindmapToMarkdown } from '../core.js'
 import type { MindmapDocument } from '../core.js'
-import type { MindmapRecord } from '../library.js'
+import type { MindmapConfig, MindmapRecord, MindmapSource } from '../library.js'
+import { saveMindmap } from '../library.js'
 import { DomainError } from '../domain/errors.js'
 
 /**
@@ -161,4 +162,39 @@ export async function runOutlineGeneration(
     clearTimeout(timer)
     await disposeOnce()
   }
+}
+
+export interface CommitGenerationInput {
+  libraryId: string
+  document: MindmapDocument
+  title: string
+  config: MindmapConfig
+  source?: MindmapSource
+  /** Record version observed when the generation was accepted (§9.1). */
+  baselineRecordVersion?: number
+}
+
+export interface CommitDependencies {
+  /** Injectable for deterministic ordering tests; defaults to real storage. */
+  save?: (args: Parameters<typeof saveMindmap>[0]) => Promise<MindmapRecord>
+}
+
+/**
+ * §9.1 commit boundary: the fully constructed record is persisted through the
+ * library's compare-and-swap in one atomic write, and the completed outcome is
+ * only returned after the save resolved — "completed ⇒ record readable".
+ * Absent baselines (pre-allocated fresh maps) rely on the generation lock and
+ * omit expectedRecordVersion; see risk R11.
+ */
+export async function commitGenerationOutcome(input: CommitGenerationInput, deps: CommitDependencies = {}): Promise<MindmapRecord> {
+  const save = deps.save ?? saveMindmap
+  return save({
+    libraryId: input.libraryId,
+    title: input.title,
+    document: input.document,
+    config: input.config,
+    ...(input.source ? { source: input.source } : {}),
+    rotatePrevious: true,
+    ...(typeof input.baselineRecordVersion === 'number' ? { expectedRecordVersion: input.baselineRecordVersion } : {}),
+  })
 }

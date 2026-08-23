@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { countMindmapNodes, validateMindmapDocument, type MindmapDocument } from './core.js'
 import { isSchemaV2Record, LEGACY_UNSCOPED_WORKSPACE, migrateRecordToV2, snapshotOf, swapCurrentPrevious, type GenerationPreviewSnapshot } from './domain/records.js'
+import { DomainError } from './domain/errors.js'
 import { DEFAULT_MINDMAP_CONFIG as DEFAULT_CONFIG } from './domain/settings.js'
 
 export interface MindmapConfig {
@@ -341,8 +342,8 @@ export async function saveMindmap(input: {
     // decides (it is the stricter, generation-aware token); the legacy
     // updatedAt token only applies when no version was provided.
     if (typeof input.expectedRecordVersion === 'number') {
-      if (!existing || existing.recordVersion !== input.expectedRecordVersion) throw new Error('mindmap conflict')
-    } else if (input.expectedUpdatedAt && existing?.updatedAt !== input.expectedUpdatedAt) throw new Error('mindmap conflict')
+      if (!existing || existing.recordVersion !== input.expectedRecordVersion) throw new DomainError('MINDMAP_CONFLICT', 'mindmap conflict')
+    } else if (input.expectedUpdatedAt && existing?.updatedAt !== input.expectedUpdatedAt) throw new DomainError('MINDMAP_CONFLICT', 'mindmap conflict')
     const config = normalizeConfig({ ...existing?.config, ...input.config })
     const document = validateMindmapDocument(input.document, { maxNodes: config.maxNodes, maxDepth: 32 })
     const now = new Date().toISOString()
@@ -387,7 +388,7 @@ export async function updateMindmap(id: string, patch: {
     const safeLibraryId = safeId(id)
     const existing = await readRecord(safeLibraryId)
     if (!existing) return null
-    if (typeof patch.expectedRecordVersion === 'number' && existing.recordVersion !== patch.expectedRecordVersion) throw new Error('mindmap conflict')
+    if (typeof patch.expectedRecordVersion === 'number' && existing.recordVersion !== patch.expectedRecordVersion) throw new DomainError('MINDMAP_CONFLICT', 'mindmap conflict')
     const config = normalizeConfig({ ...existing.config, ...patch.config })
     const document = patch.document ? validateMindmapDocument(patch.document, { maxNodes: config.maxNodes, maxDepth: 32 }) : existing.current
     const now = new Date().toISOString()
@@ -423,7 +424,7 @@ export async function restorePreviousMindmap(id: string, options?: { expectedRec
     const safeLibraryId = safeId(id)
     const existing = await readRecord(safeLibraryId)
     if (!existing) return null
-    if (typeof options?.expectedRecordVersion === 'number' && existing.recordVersion !== options.expectedRecordVersion) throw new Error('mindmap conflict')
+    if (typeof options?.expectedRecordVersion === 'number' && existing.recordVersion !== options.expectedRecordVersion) throw new DomainError('MINDMAP_CONFLICT', 'mindmap conflict')
     const swapped = swapCurrentPrevious(existing)
     swapped.recordVersion = existing.recordVersion + 1
     swapped.updatedAt = new Date().toISOString()

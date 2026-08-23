@@ -47,3 +47,5 @@ export declare function swapCurrentPrevious<T extends {
     current: MindmapDocument;
     previous?: MindmapDocument;
 }>(record: T): T;
+/** ��9.1: pre-allocate a library id without creating any disk record. */
+export declare function reserveLibraryId(now?: number, randomHex?: string): string;
