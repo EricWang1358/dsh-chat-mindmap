@@ -24,4 +24,21 @@
 - **事实**：本机 npm cache 位于 D:\Program Files\nodejs\node_cache（Program Files 下）；受限运行环境对该路径无写权限时，npm pack --dry-run（build.mjs 第三步）静默 exit 1 且零输出。
 - **处置**：S3 起门禁统一以 $env:npm_config_cache 指向仓库内 .npm-cache/（.gitignore 已有该条目）调用 build；修复 records.ts 后全量门禁 test/typecheck/build 实测 exit 0。
 
+## D-S3-5（W1）：launcher 入参校验的瘦身规范副本
+
+- **偏差**：`src/host/tools.ts` 内含 source/config/context 的轻量校验副本，而冻结 index.ts 另有更全的 legacy parser。
+- **原因**：§4.1 禁复制的是 prompt/保存逻辑；入参校验属请求面胶水，且 launcher 六字段与 legacy generate 四字段本就不同形。
+- **备选**：(a) 复制 legacy parser 全量——携带无关的 save 布尔等旧语义；(b) 瘦身规范副本＋集成期删除旧副本（采纳）；(c) 抽共享 util——两套语义不同形，抽象名不副实。
+- **结论**：采纳 (b)。注释中已标注 D-S3-5；集成切换时以本副本为准。
+
+## D-S3-6（W1）：已有 map 的 config 覆盖语义
+
+- **裁决**：对已存在 libraryId 的 chat 再生成，一律使用 record.config（per-map 设置），调用方传入的 config 仅对新图生效。
+- **依据**：产品约束「全局设置只影响新脑图」的同构延伸；测试断言 existingSave.config.maxNodes===record 配置值。
+
+## D-S3-7（W1，过程记录）：git add -A 提交卫生教训
+
+- **事实**：W1 提交时 `git add -A` 将未跟踪残留文档（违反 D-S3-1）与 tests/.err.txt、tests/.out.txt 调试残留一并带入（b5be4fe 初版）。
+- **处置**：未推送状态下立即 git rm --cached ＋ amend；此后所有提交改为**显式路径 add**。与 DEV-S2-5 同族：门禁/提交动作必须显式、可枚举。
+
 <!-- 后续条目按 D-S3-N 编号追加 -->

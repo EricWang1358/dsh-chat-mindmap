@@ -67,11 +67,31 @@ export interface OutlineCancelled {
 }
 export type OutlineResult = OutlineCompleted | OutlineFailed | OutlineTimedOut | OutlineCancelled;
 /**
- * Runs one subagent outline attempt. Provider selection follows §8.2; the
- * prompt is always composed by buildRegenerationPrompt (P3 single copy); the
- * result must pass the strict outline pipeline (§8.4). Runtime outcome
- * problems are returned as values, never thrown, so callers can map them to
- * terminal run states deterministically.
+ * Shared §9/§18 control scaffolding for one outline attempt: hard timeout,
+ * deterministic classification, and settlement even when the controller was
+ * aborted before the runtime attached its own signal handling (DEV-S2-4).
+ * The whole attempt races an abort promise, so cancellation wins wherever the
+ * attempt is suspended; non-abort errors propagate to the caller.
+ */
+export declare function runWithGenerationControl<T>(opts: {
+    timeoutMs?: number;
+    controller?: AbortController;
+}, attempt: (ctx: {
+    signal: AbortSignal;
+    timedOut: () => boolean;
+}) => Promise<T>): Promise<{
+    settled: true;
+    value: T;
+} | {
+    settled: false;
+    kind: 'cancelled' | 'timed_out';
+}>;
+/**
+ * Runs one regeneration outline attempt (panel flavor): the prompt is always
+ * composed by buildRegenerationPrompt (P3 single copy); the result must pass
+ * the strict outline pipeline (§8.4). Runtime outcome problems are returned
+ * as values, never thrown, so callers can map them to terminal run states
+ * deterministically.
  */
 export declare function runOutlineGeneration(services: {
     runtime: SubagentRuntimeLike;
@@ -82,6 +102,41 @@ export declare function runOutlineGeneration(services: {
     parent?: unknown;
     label?: string;
 }, opts?: {
+    timeoutMs?: number;
+    controller?: AbortController;
+}): Promise<OutlineResult>;
+/**
+ * Chat-source prompt composition (§10.1/§8.3): the chat entry always turns
+ * SOURCE MATERIAL into an outline. Fork additionally inherits completed
+ * conversation turns; the current-turn increment travels as the context
+ * material below. Single canonical copy lives here (§4.1).
+ */
+export declare function buildSourceOutlinePrompt(input: {
+    context?: string;
+    title?: string;
+    instruction?: string;
+    sourceKind?: string;
+    config: Pick<MindmapConfig, 'maxNodes' | 'density' | 'language'>;
+}): string;
+export interface SourceOutlineInput {
+    context?: string;
+    title?: string;
+    instruction?: string;
+    sourceKind?: string;
+    config: Pick<MindmapConfig, 'maxNodes' | 'contextLimit' | 'density' | 'language'>;
+    parent?: unknown;
+    label?: string;
+}
+/**
+ * Chat-flavor outline runner (§10.1): source material → strict outline via
+ * the same provider ladder, schema, persona, tool filter and §9 control
+ * scaffolding as the panel runner. DomainErrors from validation propagate so
+ * callers can surface stable error codes; runtime-level problems still come
+ * back as values.
+ */
+export declare function runSourceOutlineGeneration(services: {
+    runtime: SubagentRuntimeLike;
+}, input: SourceOutlineInput, opts?: {
     timeoutMs?: number;
     controller?: AbortController;
 }): Promise<OutlineResult>;

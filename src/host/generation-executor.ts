@@ -104,11 +104,51 @@ export interface OutlineCancelled {
 export type OutlineResult = OutlineCompleted | OutlineFailed | OutlineTimedOut | OutlineCancelled
 
 /**
- * Runs one subagent outline attempt. Provider selection follows §8.2; the
- * prompt is always composed by buildRegenerationPrompt (P3 single copy); the
- * result must pass the strict outline pipeline (§8.4). Runtime outcome
- * problems are returned as values, never thrown, so callers can map them to
- * terminal run states deterministically.
+ * Shared §9/§18 control scaffolding for one outline attempt: hard timeout,
+ * deterministic classification, and settlement even when the controller was
+ * aborted before the runtime attached its own signal handling (DEV-S2-4).
+ * The whole attempt races an abort promise, so cancellation wins wherever the
+ * attempt is suspended; non-abort errors propagate to the caller.
+ */
+export async function runWithGenerationControl<T>(
+  opts: { timeoutMs?: number; controller?: AbortController },
+  attempt: (ctx: { signal: AbortSignal; timedOut: () => boolean }) => Promise<T>,
+): Promise<{ settled: true; value: T } | { settled: false; kind: 'cancelled' | 'timed_out' }> {
+  const controller = opts.controller ?? new AbortController()
+  // The timeout flag decides classification even when an external abort
+  // races it, so timed_out and cancelled never flip-flop.
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, opts.timeoutMs ?? GENERATION_TIMEOUT_MS)
+  let abortReject!: (error: Error) => void
+  const abortedPromise = new Promise<never>((_resolve, reject) => {
+    abortReject = reject
+  })
+  abortedPromise.catch(() => undefined)
+  const onAbort = (): void => abortReject(new Error('generation aborted'))
+  if (controller.signal.aborted) onAbort()
+  else controller.signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const raced = await Promise.race([attempt({ signal: controller.signal, timedOut: () => timedOut }), abortedPromise])
+    if (controller.signal.aborted) return { settled: false, kind: timedOut ? 'timed_out' : 'cancelled' }
+    return { settled: true, value: raced }
+  } catch (error) {
+    if (controller.signal.aborted) return { settled: false, kind: timedOut ? 'timed_out' : 'cancelled' }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    controller.signal.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * Runs one regeneration outline attempt (panel flavor): the prompt is always
+ * composed by buildRegenerationPrompt (P3 single copy); the result must pass
+ * the strict outline pipeline (§8.4). Runtime outcome problems are returned
+ * as values, never thrown, so callers can map them to terminal run states
+ * deterministically.
  */
 export async function runOutlineGeneration(
   services: { runtime: SubagentRuntimeLike },
@@ -117,7 +157,6 @@ export async function runOutlineGeneration(
 ): Promise<OutlineResult> {
   const provider = selectProvider(services.runtime, input.supplementalContext)
   if (!provider) throw new DomainError('CAPABILITY_UNAVAILABLE', 'generation providers unavailable')
-  const controller = opts.controller ?? new AbortController()
   const { text } = buildRegenerationPrompt(input.record, input.instruction)
   let disposed = false
   let run: SubagentRunLike | undefined
@@ -130,48 +169,125 @@ export async function runOutlineGeneration(
       // R9: rc8 dispose idempotency is unverified; swallow cleanup errors.
     }
   }
-  // §9/§18 hard timeout. The timeout flag decides classification even when an
-  // external abort races it, so timed_out and cancelled never flip-flop.
-  const timeoutMs = opts.timeoutMs ?? GENERATION_TIMEOUT_MS
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, timeoutMs)
-  // Cancellation must win even when the controller was aborted before the
-  // runtime attached its own signal handling, so every await races an abort
-  // promise that fires immediately for pre-aborted controllers.
-  let abortReject!: (error: Error) => void
-  const abortedPromise = new Promise<never>((_resolve, reject) => {
-    abortReject = reject
-  })
-  abortedPromise.catch(() => undefined)
-  const onAbort = (): void => abortReject(new Error('generation aborted'))
-  if (controller.signal.aborted) onAbort()
-  else controller.signal.addEventListener('abort', onAbort, { once: true })
   try {
-    run = await Promise.race([services.runtime.start(provider, {
-      label: input.label ?? '重新构建脑图',
-      prompt: [{ type: 'text', text }],
-      parent: input.parent,
-      signal: controller.signal,
-      outputSchema: OUTLINE_OUTPUT_SCHEMA,
-      maxDepth: 1,
-      toolFilter: { allow: [] },
-      persona: OUTLINE_PERSONA,
-    }), abortedPromise])
-    const result = await Promise.race([run.result, abortedPromise])
-    if (controller.signal.aborted) return timedOut ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
-    if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || `subagent stopped: ${result.stopReason}`) }
+    const outcome = await runWithGenerationControl(opts, async (ctx) => {
+      run = await services.runtime.start(provider, {
+        label: input.label ?? '重新构建脑图',
+        prompt: [{ type: 'text', text }],
+        parent: input.parent,
+        signal: ctx.signal,
+        outputSchema: OUTLINE_OUTPUT_SCHEMA,
+        maxDepth: 1,
+        toolFilter: { allow: [] },
+        persona: OUTLINE_PERSONA,
+      })
+      return await run.result
+    })
+    if (!outcome.settled) return outcome.kind === 'timed_out' ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
+    const result = outcome.value
+    if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || ('subagent stopped: ' + result.stopReason)) }
     const validated = validateAgentOutlineResult(result.structured)
     const strict = buildStrictOutlineDocument(validated, { maxNodes: input.record.config.maxNodes, contextLimit: input.record.config.contextLimit })
-    return { kind: 'completed', document: strict.document, title: strict.document.title, truncated: strict.truncated, childId: run.id, provider }
+    return { kind: 'completed', document: strict.document, title: strict.document.title, truncated: strict.truncated, childId: run!.id, provider }
   } catch (error) {
-    if (controller.signal.aborted) return timedOut ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
     return { kind: 'failed', diagnostic: safeDiagnostic(error) }
   } finally {
-    clearTimeout(timer)
-    controller.signal.removeEventListener('abort', onAbort)
+    await disposeOnce()
+  }
+}
+
+/**
+ * Chat-source prompt composition (§10.1/§8.3): the chat entry always turns
+ * SOURCE MATERIAL into an outline. Fork additionally inherits completed
+ * conversation turns; the current-turn increment travels as the context
+ * material below. Single canonical copy lives here (§4.1).
+ */
+export function buildSourceOutlinePrompt(
+  input: { context?: string; title?: string; instruction?: string; sourceKind?: string; config: Pick<MindmapConfig, 'maxNodes' | 'density' | 'language'> },
+): string {
+  const context = typeof input.context === 'string' ? input.context.trim() : ''
+  const material = context.length > 0
+    ? '<source-material>\n' + context + '\n</source-material>'
+    : '<source-material>当前会话已完成回合中的相关内容（不含本回合；附件原文不在此列）。</source-material>'
+  const requestedTitle = input.title && input.title.trim().length > 0
+    ? '- 根标题建议：' + input.title.trim() + '（若与材料主题冲突，以材料为准）'
+    : '- 根标题：从材料中提炼简洁主题'
+  const instructionLine = input.instruction && input.instruction.trim().length > 0 ? '\n- 附加要求：' + input.instruction.trim() : ''
+  return [
+    '将下面来源材料整理为结构清晰、可编辑的 Markdown 层级大纲。只输出符合 schema 的 title 和 outline。',
+    '不要调用任何工具、技能或子代理；不要解释过程；不得编造材料中不存在的内容。',
+    '',
+    material,
+    '',
+    '约束：',
+    '- 来源边界：仅使用上述材料，不得引入材料之外的事实（来源类型：' + (input.sourceKind ?? 'chat') + '）。',
+    '- 最多节点：' + input.config.maxNodes,
+    '- 密度：' + input.config.density,
+    '- 语言：' + input.config.language,
+    requestedTitle + instructionLine,
+  ].join('\n')
+}
+
+export interface SourceOutlineInput {
+  context?: string
+  title?: string
+  instruction?: string
+  sourceKind?: string
+  config: Pick<MindmapConfig, 'maxNodes' | 'contextLimit' | 'density' | 'language'>
+  parent?: unknown
+  label?: string
+}
+
+/**
+ * Chat-flavor outline runner (§10.1): source material → strict outline via
+ * the same provider ladder, schema, persona, tool filter and §9 control
+ * scaffolding as the panel runner. DomainErrors from validation propagate so
+ * callers can surface stable error codes; runtime-level problems still come
+ * back as values.
+ */
+export async function runSourceOutlineGeneration(
+  services: { runtime: SubagentRuntimeLike },
+  input: SourceOutlineInput,
+  opts: { timeoutMs?: number; controller?: AbortController } = {},
+): Promise<OutlineResult> {
+  const provider = selectProvider(services.runtime, input.context)
+  if (!provider) throw new DomainError('CAPABILITY_UNAVAILABLE', 'generation providers unavailable')
+  const text = buildSourceOutlinePrompt({ context: input.context, title: input.title, instruction: input.instruction, sourceKind: input.sourceKind, config: input.config })
+  let disposed = false
+  let run: SubagentRunLike | undefined
+  const disposeOnce = async (): Promise<void> => {
+    if (disposed || !run) return
+    disposed = true
+    try {
+      await run.dispose()
+    } catch {
+      // R9: rc8 dispose idempotency is unverified; swallow cleanup errors.
+    }
+  }
+  try {
+    const outcome = await runWithGenerationControl(opts, async (ctx) => {
+      run = await services.runtime.start(provider, {
+        label: input.label ?? (input.title ? '生成脑图：' + input.title : '生成脑图'),
+        prompt: [{ type: 'text', text }],
+        parent: input.parent,
+        signal: ctx.signal,
+        outputSchema: OUTLINE_OUTPUT_SCHEMA,
+        maxDepth: 1,
+        toolFilter: { allow: [] },
+        persona: OUTLINE_PERSONA,
+      })
+      return await run.result
+    })
+    if (!outcome.settled) return outcome.kind === 'timed_out' ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
+    const result = outcome.value
+    if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || ('subagent stopped: ' + result.stopReason)) }
+    const validated = validateAgentOutlineResult(result.structured)
+    const strict = buildStrictOutlineDocument(validated, { maxNodes: input.config.maxNodes, contextLimit: input.config.contextLimit })
+    return { kind: 'completed', document: strict.document, title: strict.document.title, truncated: strict.truncated, childId: run!.id, provider }
+  } catch (error) {
+    if (error instanceof DomainError) throw error
+    return { kind: 'failed', diagnostic: safeDiagnostic(error) }
+  } finally {
     await disposeOnce()
   }
 }

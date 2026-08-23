@@ -91,7 +91,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:client": "tsdown",
-    "test": "node tests/core.test.mjs && node tests/library.test.mjs && node tests/domain.test.mjs && node tests/host.test.mjs && node tests/index.test.mjs",
+    "test": "node tests/core.test.mjs && node tests/library.test.mjs && node tests/domain.test.mjs && node tests/host.test.mjs && node tests/tools.test.mjs && node tests/index.test.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:bundle": "node scripts/verify-bundle.mjs",
     "verify:gate0": "node scripts/gate0.mjs",
