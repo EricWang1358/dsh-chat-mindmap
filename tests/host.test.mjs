@@ -191,7 +191,12 @@ const truncatingOutcome = await runOutlineGeneration({ runtime: truncating.runti
 assert.equal(truncatingOutcome.kind, 'completed')
 assert.equal(truncatingOutcome.truncated, true)
 
-const spawnRuntime = { getProvider: (name) => name === 'spawn' ? {} : undefined }
+const spawnRuntime = {
+  getProvider: (name) => name === 'spawn' ? {} : undefined,
+  async start(name, request) {
+    return { id: 'child-spawn', result: Promise.resolve({ stopReason: 'completed', structured: { title: 'S', outline: '# S\n## C' } }), dispose: async () => {} }
+  },
+}
 const spawnOutcome = await runOutlineGeneration({ runtime: spawnRuntime }, { record, supplementalContext: '当前回合补充正文' })
 assert.equal(spawnOutcome.kind, 'completed')
 assert.equal(spawnOutcome.provider, 'spawn')
