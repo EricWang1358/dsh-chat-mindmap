@@ -2,6 +2,7 @@ import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { useEffect, useState, type ReactElement } from 'react'
 import type { MindmapDocument, MindmapNode } from '../../core.js'
 import { cardStateOf, CARD_EXPIRED_NOTE, type CardReference, type CardState } from '../card-state.js'
+import { SvgPreviewDialog } from '../preview/dialog.js'
 import { getBlobUrlLru } from './blob-url-lru.js'
 
 // ---------------------------------------------------------------------------
@@ -115,7 +116,7 @@ async function renderSvgBlob(document: MindmapDocument, config: MindmapConfig): 
 }
 
 /** Presentational body: pure function of (reference, url, error). Directly assertable via renderToStaticMarkup. */
-export function CardBody(props: { reference: CardReference | null; url: string | null; error: string | null }): ReactElement {
+export function CardBody(props: { reference: CardReference | null; url: string | null; error: string | null; onOpen?(): void }): ReactElement {
   const state: CardState = cardStateOf(props.reference, props.url, props.error)
   const reference = props.reference
   if (!reference) return <div style={{ padding: '8px', opacity: 0.7 }}>{state.note}</div>
@@ -132,6 +133,7 @@ export function CardBody(props: { reference: CardReference | null; url: string |
           type='button'
           style={{ display: 'block', padding: 0, border: 0, background: 'transparent', cursor: 'zoom-in' }}
           aria-label={'打开 ' + reference.title + ' SVG 预览'}
+          onClick={props.onOpen}
         >
           <img src={props.url} alt={reference.title + ' 思维导图'} style={{ display: 'block', maxWidth: '100%', maxHeight: '360px', background: 'var(--dsw-alias-bg-base,#fff)', borderRadius: '6px' }} />
         </button>
@@ -145,10 +147,12 @@ export function MindmapToolCard({ block }: ToolCallViewProps): ReactElement {
   const key = reference ? reference.libraryId + ':' + reference.revisionId : ''
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   useEffect(() => {
     let alive = true
     setError(null)
     setUrl(null)
+    setOpen(false)
     if (!reference || reference.state === 'expired') return () => undefined
     const fetcher = snapshotFetcher
     const lru = getBlobUrlLru()
@@ -177,5 +181,12 @@ export function MindmapToolCard({ block }: ToolCallViewProps): ReactElement {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, reference?.state])
-  return <CardBody reference={reference} url={url} error={error} />
+  return (
+    <>
+      <CardBody reference={reference} url={url} error={error} onOpen={() => setOpen(true)} />
+      {open && url && reference && reference.state !== 'expired' ? (
+        <SvgPreviewDialog src={url} alt={reference.title + ' 思维导图'} onClose={() => setOpen(false)} />
+      ) : null}
+    </>
+  )
 }

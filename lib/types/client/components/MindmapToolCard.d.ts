@@ -28,6 +28,7 @@ export declare function CardBody(props: {
     reference: CardReference | null;
     url: string | null;
     error: string | null;
+    onOpen?(): void;
 }): ReactElement;
 export declare function MindmapToolCard({ block }: ToolCallViewProps): ReactElement;
 export {};
