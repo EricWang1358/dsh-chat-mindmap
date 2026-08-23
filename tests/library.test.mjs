@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildMindmap } from '../lib/core.js'
 import { archiveMindmap, deleteMindmap, getMindmap, listMindmaps, saveMindmap, updateMindmap } from '../lib/library.js'
+import { revisionIdOf } from '../lib/revisions.js'
 
 const root = await mkdtemp(join(tmpdir(), 'dsh-chat-mindmap-'))
 process.env.DSH_MINDMAP_HOME = root
@@ -40,3 +41,53 @@ try {
   await rm(root, { recursive: true, force: true })
 }
 console.log('library tests passed')
+
+import { mkdir, writeFile } from 'node:fs/promises'
+import { validateMindmapDocument } from '../lib/core.js'
+
+process.env.DSH_MINDMAP_HOME = await mkdtemp(join(tmpdir(), 'dsh-chat-mindmap-v2-'))
+try {
+  const created = await saveMindmap({ title: 'V2', document: buildMindmap('# V2\n## Fresh'), source: { kind: 'text' } })
+  assert.equal(created.schemaVersion, 2)
+  assert.equal(created.recordVersion, 1)
+  assert.equal(created.previewCurrent.revisionId, revisionIdOf(created.current))
+  assert.deepEqual(created.previewCurrent.document, created.current)
+
+  await mkdir(join(process.env.DSH_MINDMAP_HOME, 'maps'), { recursive: true })
+  const v1FixtureId = 'map-v1fixture'
+  const v1Fixture = {
+    libraryId: v1FixtureId,
+    title: 'Legacy fixture',
+    current: buildMindmap('# Fixture\n## Old'),
+    config: { layout: 'logicalStructure', density: 'standard', maxNodes: 360, theme: 'default', font: 'system', instruction: '', language: 'auto', contextLimit: 80_000 },
+    archived: false,
+    createdAt: '2025-12-31T00:00:00.000Z',
+    updatedAt: '2026-01-05T00:00:00.000Z',
+  }
+  await writeFile(join(process.env.DSH_MINDMAP_HOME, 'maps', `${v1FixtureId}.json`), JSON.stringify(v1Fixture), 'utf8')
+  await writeFile(join(process.env.DSH_MINDMAP_HOME, 'index.json'), JSON.stringify([created.libraryId, v1FixtureId]), 'utf8')
+
+  const migratedFixture = await getMindmap(v1FixtureId)
+  assert.ok(migratedFixture)
+  assert.equal(migratedFixture.schemaVersion, 2)
+  assert.equal(migratedFixture.recordVersion, 1)
+  assert.equal(migratedFixture.previewCurrent.revisionId, revisionIdOf(migratedFixture.current))
+  assert.equal(migratedFixture.previewCurrent.generatedAt, v1Fixture.updatedAt)
+  const listed = await listMindmaps()
+  assert.ok(listed.some((entry) => entry.libraryId === v1FixtureId))
+
+  const rotated = await saveMindmap({ libraryId: created.libraryId, title: 'V2', document: buildMindmap('# V2\n## Second'), source: { kind: 'text' } })
+  assert.equal(rotated.recordVersion, 2)
+  assert.equal(rotated.previewCurrent.revisionId, revisionIdOf(rotated.current))
+  assert.equal(rotated.previewPrevious.revisionId, revisionIdOf(created.current))
+
+  const persisted = JSON.parse(await readFile(join(process.env.DSH_MINDMAP_HOME, 'maps', `${rotated.libraryId}.json`), 'utf8'))
+  for (const key of ['libraryId', 'title', 'config', 'createdAt', 'updatedAt', 'schemaVersion', 'recordVersion', 'previewCurrent']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(persisted, key), `persisted record missing ${key}`)
+  }
+  assert.doesNotThrow(() => validateMindmapDocument(persisted.current))
+  assert.doesNotThrow(() => validateMindmapDocument(persisted.previous))
+} finally {
+  await rm(process.env.DSH_MINDMAP_HOME, { recursive: true, force: true })
+}
+console.log('library v2 storage tests passed')

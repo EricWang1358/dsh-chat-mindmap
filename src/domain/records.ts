@@ -21,15 +21,16 @@ export function isSchemaV2Record(value: unknown): value is Record<string, unknow
  * migrated record yields a deep-equal result. The migrated snapshot counts as
  * generation #1, so legacy maps get a stable chat preview immediately.
  */
-export function migrateRecordToV2<T extends Record<string, unknown>>(record: T): T & { schemaVersion: 2; recordVersion: number; previewCurrent: GenerationPreviewSnapshot; workspaceKey: string; previewPrevious?: GenerationPreviewSnapshot } {
+export function migrateRecordToV2<T extends object>(record: T): T & { schemaVersion: 2; recordVersion: number; previewCurrent: GenerationPreviewSnapshot; workspaceKey: string } {
   if (isSchemaV2Record(record)) return record as T & { schemaVersion: 2; recordVersion: number; previewCurrent: GenerationPreviewSnapshot; workspaceKey: string }
-  const current = record.current as MindmapDocument
+  const loose = record as Record<string, unknown>
+  const current = loose.current as MindmapDocument
   return {
     ...record,
     schemaVersion: 2,
     recordVersion: 1,
-    workspaceKey: typeof record.workspaceKey === 'string' ? record.workspaceKey : LEGACY_UNSCOPED_WORKSPACE,
-    previewCurrent: { revisionId: revisionIdOf(current), document: current, generatedAt: String(record.updatedAt ?? '') },
+    workspaceKey: typeof loose.workspaceKey === 'string' ? loose.workspaceKey : LEGACY_UNSCOPED_WORKSPACE,
+    previewCurrent: { revisionId: revisionIdOf(current), document: current, generatedAt: String(loose.updatedAt ?? '') },
   }
 }
 

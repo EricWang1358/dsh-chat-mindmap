@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { countMindmapNodes, validateMindmapDocument, type MindmapDocument } from './core.js'
+import { isSchemaV2Record, LEGACY_UNSCOPED_WORKSPACE, migrateRecordToV2, snapshotOf, type GenerationPreviewSnapshot } from './domain/records.js'
 import { DEFAULT_MINDMAP_CONFIG as DEFAULT_CONFIG } from './domain/settings.js'
 
 export interface MindmapConfig {
@@ -26,10 +27,15 @@ export interface MindmapSource {
 }
 
 export interface MindmapRecord {
+  schemaVersion: 2
+  recordVersion: number
   libraryId: string
   title: string
+  workspaceKey?: string
   current: MindmapDocument
   previous?: MindmapDocument
+  previewCurrent?: GenerationPreviewSnapshot
+  previewPrevious?: GenerationPreviewSnapshot
   config: MindmapConfig
   source?: MindmapSource
   archived?: boolean
@@ -83,6 +89,7 @@ interface SummaryIndexEntry {
   hasPrevious: boolean
   archived: boolean
   nodeCount: number
+  workspaceKey?: string
 }
 
 
@@ -99,7 +106,18 @@ async function writeSummaryIndex(entries: SummaryIndexEntry[]): Promise<void> {
 }
 
 function summaryOf(record: MindmapRecord): SummaryIndexEntry {
-  return { libraryId: record.libraryId, title: record.title, source: record.source, config: record.config, createdAt: record.createdAt, updatedAt: record.updatedAt, hasPrevious: Boolean(record.previous), archived: Boolean(record.archived), nodeCount: countMindmapNodes(record.current.root) }
+  return {
+    libraryId: record.libraryId,
+    title: record.title,
+    source: record.source,
+    config: record.config,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    hasPrevious: Boolean(record.previous),
+    archived: Boolean(record.archived),
+    nodeCount: countMindmapNodes(record.current.root),
+    ...(record.workspaceKey ? { workspaceKey: record.workspaceKey } : {}),
+  }
 }
 
 async function ensureStorageBudget(id: string, nextBytes: number): Promise<void> {
@@ -208,6 +226,15 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
 }
 
+function normalizeSnapshot(value: unknown): GenerationPreviewSnapshot | undefined {
+  if (!isRecord(value) || typeof value.revisionId !== 'string' || typeof value.generatedAt !== 'string') return undefined
+  try {
+    return { revisionId: value.revisionId, document: validateMindmapDocument(value.document, { maxNodes: 2_000, maxDepth: 32 }), generatedAt: value.generatedAt }
+  } catch {
+    return undefined
+  }
+}
+
 function validateMindmapRecord(value: unknown, expectedId: string, path: string): MindmapRecord {
   if (!isRecord(value) || value.libraryId !== expectedId || typeof value.title !== 'string' || value.title.length > MAX_TITLE_LENGTH ||
     typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string' || typeof value.archived !== 'boolean' && typeof value.archived !== 'undefined') {
@@ -216,7 +243,10 @@ function validateMindmapRecord(value: unknown, expectedId: string, path: string)
   const current = validateMindmapDocument(value.current, { maxNodes: 2_000, maxDepth: 32 })
   const previous = typeof value.previous === 'undefined' ? undefined : validateMindmapDocument(value.previous, { maxNodes: 2_000, maxDepth: 32 })
   const config = normalizeConfig(value.config)
-  const record: MindmapRecord = {
+  // Only records persisted as V2 keep their stored snapshots here; genuine V1
+  // files must fall through to lazy migration so previews are synthesized.
+  const wasPersistedAsV2 = isSchemaV2Record(value)
+  const record = {
     libraryId: expectedId,
     title: value.title,
     current,
@@ -226,8 +256,18 @@ function validateMindmapRecord(value: unknown, expectedId: string, path: string)
     ...(value.archived ? { archived: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
+  } as unknown as MindmapRecord
+  const rawRecordVersion = value.recordVersion
+  record.recordVersion = typeof rawRecordVersion === 'number' && Number.isInteger(rawRecordVersion) && rawRecordVersion > 0 ? rawRecordVersion : 1
+  record.workspaceKey = typeof value.workspaceKey === 'string' && value.workspaceKey.length > 0 ? value.workspaceKey.slice(0, 64) : LEGACY_UNSCOPED_WORKSPACE
+  if (wasPersistedAsV2) {
+    record.schemaVersion = 2
+    const previewCurrent = normalizeSnapshot(value.previewCurrent)
+    if (previewCurrent) record.previewCurrent = previewCurrent
+    const previewPrevious = normalizeSnapshot(value.previewPrevious)
+    if (previewPrevious) record.previewPrevious = previewPrevious
   }
-  return record
+  return migrateRecordToV2(record)
 }
 
 async function readIndex(): Promise<string[]> {
@@ -243,10 +283,14 @@ function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function listMindmaps(filters?: { workspaceId?: string; sessionId?: string; archived?: boolean }): Promise<MindmapSummary[]> {
-  const summaries = await readSummaryIndex()
   const sourceMatches = (summary: SummaryIndexEntry) => summaryMatches(summary, filters)
-  if (summaries.length) return summaries.filter(sourceMatches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const ids = await readIndex()
+  const summaries = await readSummaryIndex()
+  // The summary index is a derived cache. Records present in the main index
+  // but missing from the cache (legacy fixtures, interrupted writes) trigger a
+  // full rebuild instead of silently staying invisible.
+  const known = new Set(summaries.map((entry) => entry.libraryId))
+  if (!ids.some((id) => !known.has(id))) return summaries.filter(sourceMatches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const records: MindmapRecord[] = []
   for (let offset = 0; offset < ids.length; offset += LIST_CONCURRENCY) {
     const batch = await Promise.all(ids.slice(offset, offset + LIST_CONCURRENCY).map(readRecord))
@@ -284,17 +328,30 @@ export async function saveMindmap(input: {
     const config = normalizeConfig({ ...existing?.config, ...input.config })
     const document = validateMindmapDocument(input.document, { maxNodes: config.maxNodes, maxDepth: 32 })
     const now = new Date().toISOString()
+    // Generation commits rotate by default; explicit rotatePrevious:false is a
+    // manual-edit commit and keeps previous plus both preview generations.
+    const rotating = input.rotatePrevious !== false
+    const previous = existing ? (rotating ? existing.current : existing.previous) : undefined
+    const previewPrevious = existing ? (rotating ? existing.previewCurrent : existing.previewPrevious) : undefined
+    const previewCurrent = existing && !rotating && existing.previewCurrent ? existing.previewCurrent : snapshotOf(document, now)
     const record: MindmapRecord = {
+      schemaVersion: 2,
+      recordVersion: existing?.recordVersion ?? 0,
       libraryId: id,
       title: boundedString(input.title || document.title, document.title, MAX_TITLE_LENGTH),
+      workspaceKey: existing?.workspaceKey ?? LEGACY_UNSCOPED_WORKSPACE,
       current: document,
-      previous: input.rotatePrevious === false ? existing?.previous : existing?.current,
+      ...(previous ? { previous } : {}),
+      previewCurrent,
+      ...(previewPrevious ? { previewPrevious } : {}),
       config,
       source: normalizeSource(input.source) ?? existing?.source,
       archived: input.archived ?? existing?.archived ?? false,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     }
+    record.recordVersion += 1
+    if (!record.recordVersion || record.recordVersion < 1) record.recordVersion = 1
     const serialized = JSON.stringify(record)
     await ensureStorageBudget(id, Buffer.byteLength(serialized, 'utf8'))
     await atomicJson(mapPath(id), record)
@@ -322,13 +379,26 @@ export async function updateMindmap(id: string, patch: {
     const config = normalizeConfig({ ...existing.config, ...patch.config })
     const document = patch.document ? validateMindmapDocument(patch.document, { maxNodes: config.maxNodes, maxDepth: 32 }) : existing.current
     const now = new Date().toISOString()
+    // Product constraint: manual edits only update `current`. Rotation of
+    // previous/previews happens exclusively on explicit generation commits.
+    const rotating = patch.rotatePrevious === true && Boolean(patch.document)
+    const previous = rotating ? existing.current : existing.previous
+    const previewCurrent = rotating ? snapshotOf(document, now) : existing.previewCurrent
+    const previewPrevious = rotating ? existing.previewCurrent : existing.previewPrevious
     const record: MindmapRecord = {
-      ...existing,
+      schemaVersion: 2,
+      recordVersion: existing.recordVersion + 1,
+      libraryId: existing.libraryId,
       title: boundedString(patch.title ?? existing.title, existing.title, MAX_TITLE_LENGTH),
+      workspaceKey: existing.workspaceKey ?? LEGACY_UNSCOPED_WORKSPACE,
       current: document,
-      previous: patch.rotatePrevious === false ? existing.previous : patch.document ? existing.current : existing.previous,
+      ...(previous ? { previous } : {}),
+      previewCurrent,
+      ...(previewPrevious ? { previewPrevious } : {}),
       config,
+      source: existing.source,
       archived: patch.archived ?? existing.archived ?? false,
+      createdAt: existing.createdAt,
       updatedAt: now,
     }
     const serialized = JSON.stringify(record)
