@@ -28,6 +28,9 @@ for (const [kind, headline] of Object.entries(expectations)) {
 }
 const capHtml = renderToStaticMarkup(createElement(EmptyState, { kind: 'capability' }))
 assert.ok(!capHtml.includes('让 Agent 从文本'), 'capability branch must not suggest generation')
+const sessionHtml = renderToStaticMarkup(createElement(EmptyState, { kind: 'session', localeId: 'zh', onCreate: () => undefined }))
+assert.ok(sessionHtml.includes('三步开始'), 'session empty state must present the first-use guide')
+assert.ok(sessionHtml.includes('data-mm-onboarding-create'), 'session empty state must provide an actionable creation entry')
 console.log('client-ia empty states passed')
 
 // regenerate availability predicate (§17.3: disabled while running)
@@ -61,6 +64,8 @@ assert.ok(viewSrc.includes('expectedRecordVersion: record.recordVersion, ...(not
 // Scope switch drives the canonical list query.
 assert.ok(viewSrc.includes('listQueryOf(scope, sessionId, showArchived)'))
 assert.ok(idxSrc.includes('tool.call.toolview'))
+assert.ok(viewSrc.includes("data-mm-onboarding-create"), 'first-use guide should be part of the real canvas surface')
+assert.ok(viewSrc.includes('setShowCreate(true)'), 'first-use guide should connect to the supported local create flow')
 console.log('client-ia source anchors passed')
 
 const err = new ApiError(409, 'MINDMAP_CONFLICT', 'conflict')
