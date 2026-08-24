@@ -10,6 +10,7 @@ import { buildRegenerationPrompt } from '../lib/host/generation-executor.js'
 import { apply } from '../lib/index.js'
 
 const MUT_HEADERS = { 'x-dsh-chat-mindmap-request': '1', 'sec-fetch-site': 'same-origin' }
+const TEST_WORKSPACE_CWD = process.platform === 'win32' ? 'D:\\A\\1NUS\\1Sem\\dsh-chat-mindmap' : '/workspace/dsh-chat-mindmap'
 
 class FakeRequest extends EventEmitter {
   constructor(body, url, method = 'GET') {
@@ -184,7 +185,7 @@ try {
   const jobs = new FakeJobsService()
   const runtime = makeFakeRuntime()
   const probe = createParentSideEffectProbe()
-  const agents = { registry: new Map([['session-active', Object.assign(probe.parent, { session: { header: { cwd: 'D:\\A\\1NUS\\1Sem\\dsh-chat-mindmap' } } })]]), get(id) { return this.registry.get(String(id)) } }
+  const agents = { registry: new Map([['session-active', Object.assign(probe.parent, { session: { header: { cwd: TEST_WORKSPACE_CWD } } })]]), get(id) { return this.registry.get(String(id)) } }
   const full = makeCtx([
     { names: ['agents', 'subagents'], services: { agents, subagents: runtime } },
     { names: ['jobs'], services: { jobs } },
@@ -213,7 +214,7 @@ try {
   // ------------------------------------------------------------------
   trace('caps ok')
   const generate = full.registeredTools.get('generate_chat_mindmap')
-  const toolAgent = { id: 'session-active', session: { header: { cwd: 'D:\\A\\1NUS\\1Sem\\dsh-chat-mindmap' } } }
+  const toolAgent = { id: 'session-active', session: { header: { cwd: TEST_WORKSPACE_CWD } } }
   trace('before launch')
   const launch = await generate.execute({ context: 'alpha beta gamma', title: 'Assembled' }, { agent: toolAgent })
   trace('launched')
@@ -278,7 +279,7 @@ try {
   // Dispose-to-zero: teardown cancels in-flight runs and reports interrupted.
   // ------------------------------------------------------------------
   const hangRuntime = makeFakeRuntime({ hang: true })
-  const hangAgents = { get: () => ({ session: { header: { cwd: 'D:\\A\\1NUS\\1Sem\\dsh-chat-mindmap' } } }) }
+  const hangAgents = { get: () => ({ session: { header: { cwd: TEST_WORKSPACE_CWD } } }) }
   const hangCtxPack = makeCtx([{ names: ['agents', 'subagents'], services: { agents: hangAgents, subagents: hangRuntime } }])
   apply(hangCtxPack.ctx)
   const hangSeed = await saveMindmap({ title: 'Hang', document: { version: 1, title: 'Hang', root: { id: 'h', title: 'Hang', children: [] }, source: { kind: 'agent-context', characters: 4, generatedAt: '2026-01-01T00:00:00.000Z' } } })
