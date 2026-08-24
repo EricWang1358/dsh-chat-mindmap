@@ -335,15 +335,41 @@ function MapCanvas({ record, onDocumentChange, onActions, onFullscreenChange, on
 export type EmptyKind = 'session' | 'workspace' | 'capability'
 
 /** §13.1: the three mandated empty states. */
-export function EmptyState({ kind, localeId }: { kind: EmptyKind; localeId?: string }): ReactElement {
+export function EmptyState({ kind, localeId, onCreate }: { kind: EmptyKind; localeId?: string; onCreate?(): void }): ReactElement {
   const t = createT(localeId)
   const icon = kind === 'capability' ? '\u26A0\uFE0F' : kind === 'workspace' ? '\uD83D\uDDC2\uFE0F' : '\uD83E\uDDF6'
   const titleKey = kind === 'capability' ? 'empty.capability.title' : kind === 'workspace' ? 'empty.workspace.title' : 'empty.session.title'
   const bodyKey = kind === 'capability' ? 'empty.capability.body' : kind === 'workspace' ? 'empty.workspace.body' : 'empty.session.body'
-  return createElement('section', { style: { display: 'grid', placeItems: 'center', minHeight: '480px', gap: '10px' } },
-    createElement('span', { style: { fontSize: '42px', opacity: .35 } }, icon),
-    createElement('strong', { style: { fontSize: '16px' } }, t(titleKey)),
-    createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)', maxWidth: '320px', textAlign: 'center' } }, t(bodyKey)))
+  if (kind !== 'session') {
+    return createElement('section', { style: { display: 'grid', placeItems: 'center', minHeight: '480px', gap: '10px' } },
+      createElement('span', { style: { fontSize: '42px', opacity: .35 } }, icon),
+      createElement('strong', { style: { fontSize: '16px' } }, t(titleKey)),
+      createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)', maxWidth: '320px', textAlign: 'center' } }, t(bodyKey)))
+  }
+  const steps = [
+    ['01', 'empty.session.step1.title', 'empty.session.step1.body'],
+    ['02', 'empty.session.step2.title', 'empty.session.step2.body'],
+    ['03', 'empty.session.step3.title', 'empty.session.step3.body'],
+  ] as const
+  return createElement('section', { 'data-mm-onboarding': 'true', style: { width: 'min(760px, calc(100% - 32px))', margin: '28px auto', padding: 'clamp(22px,4vw,38px)', boxSizing: 'border-box', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 68%, var(--dsw-alias-label-primary,#e2e8f0) 12%)', borderRadius: '20px', background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-bg-layer-1,#171e2e) 86%, transparent), color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 92%, transparent))', boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 14%, transparent), var(--dsw-shadow-lv3,0 18px 46px rgba(0,0,0,.22))', backdropFilter: 'blur(18px) saturate(135%)', WebkitBackdropFilter: 'blur(18px) saturate(135%)' } },
+    createElement('div', { style: { display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', gap: '18px', alignItems: 'start' } },
+      createElement('div', { 'aria-hidden': true, style: { position: 'relative', width: '58px', height: '58px', borderRadius: '18px', overflow: 'hidden', background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 28%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2,#23262d) 88%, transparent))', border: '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 42%, transparent)', boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 24%, transparent)' } },
+        createElement('span', { style: { position: 'absolute', left: '12px', top: '24px', width: '33px', height: '1px', background: 'var(--dsw-alias-brand-primary,#14b8a6)', transform: 'rotate(-28deg)', transformOrigin: 'left center', opacity: .8 } }),
+        createElement('span', { style: { position: 'absolute', left: '12px', top: '30px', width: '33px', height: '1px', background: 'var(--dsw-alias-brand-primary,#14b8a6)', transform: 'rotate(26deg)', transformOrigin: 'left center', opacity: .65 } }),
+        createElement('i', { style: { position: 'absolute', left: '8px', top: '24px', width: '9px', height: '9px', borderRadius: '50%', background: 'var(--dsw-alias-brand-primary,#14b8a6)', boxShadow: '0 0 0 4px color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 14%, transparent)' } }),
+        createElement('i', { style: { position: 'absolute', right: '8px', top: '13px', width: '11px', height: '11px', borderRadius: '50%', background: 'color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 84%, transparent)' } }),
+        createElement('i', { style: { position: 'absolute', right: '8px', bottom: '12px', width: '9px', height: '9px', borderRadius: '50%', background: 'color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 62%, transparent)' } })),
+      createElement('div', { style: { minWidth: 0 } },
+        createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-brand-primary,#14b8a6)', fontWeight: '650', letterSpacing: '.02em', marginBottom: '5px' } }, t('empty.session.kicker')),
+        createElement('strong', { style: { display: 'block', fontSize: '20px', letterSpacing: '-.025em', lineHeight: 1.2 } }, t(titleKey)),
+        createElement('small', { style: { display: 'block', marginTop: '7px', maxWidth: '480px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', lineHeight: 1.55 } }, t(bodyKey)))),
+    createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(172px,1fr))', gap: '8px', marginTop: '24px' } }, steps.map(([number, stepTitle, stepBody]) => createElement('div', { key: number, style: { padding: '12px', borderRadius: '13px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 64%, transparent)', background: 'color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 38%, transparent)' } },
+      createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-brand-primary,#14b8a6)', fontWeight: '700', fontSize: '11px', letterSpacing: '.04em' } }, number),
+      createElement('strong', { style: { display: 'block', marginTop: '7px', fontSize: '13px' } }, t(stepTitle)),
+      createElement('small', { style: { display: 'block', marginTop: '4px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', lineHeight: 1.5 } }, t(stepBody))))),
+    createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginTop: '22px', paddingTop: '16px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 60%, transparent)' } },
+      createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, t('empty.session.guideTitle')),
+      createElement('button', { type: 'button', onClick: onCreate, disabled: !onCreate, style: { ...compactButtonStyle(true), padding: '8px 12px', background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#111827)' }, 'data-mm-onboarding-create': 'true', 'data-mm-action': 'true' }, t('empty.session.primary'))))
 }
 
 export const regenerateUnavailableWhileRunning = (panelRun: PanelRunView | null | undefined): boolean => panelRun !== undefined && panelRun !== null && panelRun.status === 'running'
@@ -775,7 +801,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
             createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomOut(), style: zoomButtonStyle(), 'aria-label': '缩小画布', 'data-mm-action': 'true' }, '−'),
             createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomIn(), style: zoomButtonStyle(), 'aria-label': '放大画布', 'data-mm-action': 'true' }, '＋'),
           ),
-        ) : createElement('div', { style: { display: 'grid', placeItems: 'center', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'auto' } }, createElement(EmptyState, { kind: galleryState === 'failed' ? 'capability' : scope === 'workspace' ? 'workspace' : 'session', localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined) })),
+        ) : createElement('div', { style: { display: 'grid', placeItems: 'center', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'auto' } }, createElement(EmptyState, { kind: galleryState === 'failed' ? 'capability' : scope === 'workspace' ? 'workspace' : 'session', localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined), onCreate: galleryState === 'ready' && scope === 'session' ? () => { setActivePopover(null); setSidebarOpen(true); setShowCreate(true); setStatus('已打开从文本创建；也可回到聊天让 Agent 根据上下文生成') } : undefined })),
       ),
       utilityVisible && record ? inspectorVisible
         ? createElement(NodeInspector, { record, nodeDraft, onDraftChange: (next) => setNodeDraft(next), onSave: saveNode, onClose: cancelNodeDraft, onVisualConfig: visualConfig })

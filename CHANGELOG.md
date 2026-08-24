@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add a guided, actionable first-use state for an empty session: generate in chat, refine on canvas, then export. The primary action opens the existing scoped create-from-text flow.
+
 ## 0.2.5 — 2026-08-24
 
 ### Fixed
