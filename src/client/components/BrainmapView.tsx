@@ -7,6 +7,8 @@ import { DswButton, DswStateDot } from './ui/primitives.js'
 import { LAYOUT_OPTIONS, THEME_PRESETS, shellThemeConfig, shellIsDark } from '../canvas-theme.js'
 import { createT, resolveLocale } from '../locale.js'
 import { consumeMindmapTarget } from './mindmap-navigation.js'
+import { MindmapGuide } from './MindmapGuide.js'
+import { OnboardingPreference } from './onboarding-preference.js'
 
 type MindMapLike = {
   doExport?: { export(type: string, download: boolean, ...args: unknown[]): Promise<unknown> }
@@ -335,7 +337,7 @@ function MapCanvas({ record, onDocumentChange, onActions, onFullscreenChange, on
 export type EmptyKind = 'session' | 'workspace' | 'capability'
 
 /** §13.1: the three mandated empty states. */
-export function EmptyState({ kind, localeId, onCreate }: { kind: EmptyKind; localeId?: string; onCreate?(): void }): ReactElement {
+export function EmptyState({ kind, localeId, onCreate, onOpenGuide }: { kind: EmptyKind; localeId?: string; onCreate?(): void; onOpenGuide?(): void }): ReactElement {
   const t = createT(localeId)
   const icon = kind === 'capability' ? '\u26A0\uFE0F' : kind === 'workspace' ? '\uD83D\uDDC2\uFE0F' : '\uD83E\uDDF6'
   const titleKey = kind === 'capability' ? 'empty.capability.title' : kind === 'workspace' ? 'empty.workspace.title' : 'empty.session.title'
@@ -346,12 +348,7 @@ export function EmptyState({ kind, localeId, onCreate }: { kind: EmptyKind; loca
       createElement('strong', { style: { fontSize: '16px' } }, t(titleKey)),
       createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)', maxWidth: '320px', textAlign: 'center' } }, t(bodyKey)))
   }
-  const steps = [
-    ['01', 'empty.session.step1.title', 'empty.session.step1.body'],
-    ['02', 'empty.session.step2.title', 'empty.session.step2.body'],
-    ['03', 'empty.session.step3.title', 'empty.session.step3.body'],
-  ] as const
-  return createElement('section', { 'data-mm-onboarding': 'true', style: { width: 'min(760px, calc(100% - 32px))', margin: '28px auto', padding: 'clamp(22px,4vw,38px)', boxSizing: 'border-box', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 68%, var(--dsw-alias-label-primary,#e2e8f0) 12%)', borderRadius: '20px', background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-bg-layer-1,#171e2e) 86%, transparent), color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 92%, transparent))', boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 14%, transparent), var(--dsw-shadow-lv3,0 18px 46px rgba(0,0,0,.22))', backdropFilter: 'blur(18px) saturate(135%)', WebkitBackdropFilter: 'blur(18px) saturate(135%)' } },
+  return createElement('section', { 'data-mm-empty-session': 'true', style: { width: 'min(620px, calc(100% - 32px))', margin: '28px auto', padding: 'clamp(22px,4vw,34px)', boxSizing: 'border-box', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 68%, var(--dsw-alias-label-primary,#e2e8f0) 12%)', borderRadius: '20px', background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-bg-layer-1,#171e2e) 86%, transparent), color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 92%, transparent))', boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 14%, transparent), var(--dsw-shadow-lv3,0 18px 46px rgba(0,0,0,.22))', backdropFilter: 'blur(18px) saturate(135%)', WebkitBackdropFilter: 'blur(18px) saturate(135%)' } },
     createElement('div', { style: { display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', gap: '18px', alignItems: 'start' } },
       createElement('div', { 'aria-hidden': true, style: { position: 'relative', width: '58px', height: '58px', borderRadius: '18px', overflow: 'hidden', background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 28%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2,#23262d) 88%, transparent))', border: '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 42%, transparent)', boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 24%, transparent)' } },
         createElement('span', { style: { position: 'absolute', left: '12px', top: '24px', width: '33px', height: '1px', background: 'var(--dsw-alias-brand-primary,#14b8a6)', transform: 'rotate(-28deg)', transformOrigin: 'left center', opacity: .8 } }),
@@ -363,12 +360,8 @@ export function EmptyState({ kind, localeId, onCreate }: { kind: EmptyKind; loca
         createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-brand-primary,#14b8a6)', fontWeight: '650', letterSpacing: '.02em', marginBottom: '5px' } }, t('empty.session.kicker')),
         createElement('strong', { style: { display: 'block', fontSize: '20px', letterSpacing: '-.025em', lineHeight: 1.2 } }, t(titleKey)),
         createElement('small', { style: { display: 'block', marginTop: '7px', maxWidth: '480px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', lineHeight: 1.55 } }, t(bodyKey)))),
-    createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(172px,1fr))', gap: '8px', marginTop: '24px' } }, steps.map(([number, stepTitle, stepBody]) => createElement('div', { key: number, style: { padding: '12px', borderRadius: '13px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 64%, transparent)', background: 'color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 38%, transparent)' } },
-      createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-brand-primary,#14b8a6)', fontWeight: '700', fontSize: '11px', letterSpacing: '.04em' } }, number),
-      createElement('strong', { style: { display: 'block', marginTop: '7px', fontSize: '13px' } }, t(stepTitle)),
-      createElement('small', { style: { display: 'block', marginTop: '4px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', lineHeight: 1.5 } }, t(stepBody))))),
     createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginTop: '22px', paddingTop: '16px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 60%, transparent)' } },
-      createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, t('empty.session.guideTitle')),
+      createElement('button', { type: 'button', onClick: onOpenGuide, disabled: !onOpenGuide, style: { border: 0, padding: '8px 2px', background: 'transparent', color: 'var(--dsw-alias-label-secondary,#94a3b8)', cursor: onOpenGuide ? 'pointer' : 'default', font: 'inherit' }, 'data-mm-action': 'true' }, t('empty.session.guideAction')),
       createElement('button', { type: 'button', onClick: onCreate, disabled: !onCreate, style: { ...compactButtonStyle(true), padding: '8px 12px', background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#111827)' }, 'data-mm-onboarding-create': 'true', 'data-mm-action': 'true' }, t('empty.session.primary'))))
 }
 
@@ -480,12 +473,25 @@ const MINDMAP_CHROME_CSS = [
   '[data-chat-mindmap-root] [data-mm-action]:active:not(:disabled){transform:translateY(0)}',
   '[data-chat-mindmap-root] button:focus-visible,[data-chat-mindmap-root] input:focus-visible,[data-chat-mindmap-root] textarea:focus-visible,[data-chat-mindmap-root] select:focus-visible{outline:2px solid color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 75%, transparent);outline-offset:2px}',
   '[data-chat-mindmap-root] [data-mm-sidebar-item]:hover{background:color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 10%, transparent)}',
-  '@media (prefers-reduced-transparency: reduce){[data-chat-mindmap-root] [data-mm-glass]{background:var(--dsw-alias-bg-layer-1,#171e2e)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}}',
+  '@media (prefers-reduced-transparency: reduce){[data-chat-mindmap-root] [data-mm-glass]{background:var(--dsw-alias-bg-layer-1,#171e2e)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}[data-chat-mindmap-root] [data-mm-guide-overlay]{background:var(--dsw-alias-bg-base,#111827)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}}',
   '@media (prefers-reduced-motion: reduce){[data-chat-mindmap-root] *{transition:none!important}}',
 ].join('\n')
 
-function BrainmapView(props: ConvViewProps & { sessions: SessionService }): ReactElement {
+function useOnboardingSeen(onboarding: OnboardingPreference): boolean {
+  const [seen, setSeen] = useState(() => onboarding.seen)
+  useEffect(() => {
+    const update = () => setSeen(onboarding.seen)
+    update()
+    return onboarding.subscribe(update)
+  }, [onboarding])
+  return seen
+}
+
+function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboarding: OnboardingPreference }): ReactElement {
   const sessionId = props.sessionId
+  const onboardingSeen = useOnboardingSeen(props.onboarding)
+  const previousOnboardingSeen = useRef(onboardingSeen)
+  const [guideRequested, setGuideRequested] = useState(false)
   const [maps, setMaps] = useState<MindmapSummary[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [record, setRecord] = useState<MindmapRecord | null>(null)
@@ -516,6 +522,10 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   const autosaveAbort = useRef<AbortController | null>(null)
   const galleryRequestRef = useRef<{ key: string; promise: Promise<MindmapSummary[]> } | null>(null)
   const recordRef = useRef<MindmapRecord | null>(null)
+  useEffect(() => {
+    if (previousOnboardingSeen.current && !onboardingSeen) setGuideRequested(true)
+    previousOnboardingSeen.current = onboardingSeen
+  }, [onboardingSeen])
   useEffect(() => { recordRef.current = record }, [record])
   useEffect(() => {
     const workspace = workspaceRef.current
@@ -729,11 +739,45 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     setActivePopover(null)
     setInspectorOpen((open) => !open)
   }
+  const openCreateFromGuide = () => {
+    props.onboarding.markSeen()
+    setGuideRequested(false)
+    setActivePopover(null)
+    setInspectorOpen(false)
+    setSidebarOpen(true)
+    setShowCreate(true)
+    setStatus('已打开从文本创建；也可回到聊天让 Agent 根据上下文生成')
+  }
+  const openGuide = () => {
+    props.onboarding.replay()
+    setGuideRequested(true)
+    setActivePopover(null)
+    setInspectorOpen(false)
+  }
+  const dismissGuide = () => {
+    props.onboarding.markSeen()
+    setGuideRequested(false)
+  }
+  const openInspectorFromGuide = () => {
+    if (!record) return
+    dismissGuide()
+    setActivePopover(null)
+    setInspectorOpen(true)
+    setStatus('节点属性已打开：选择节点后即可编辑标题和备注')
+  }
+  const openMoreFromGuide = () => {
+    if (!record) return
+    dismissGuide()
+    setInspectorOpen(false)
+    setActivePopover('more')
+    setStatus('更多操作已打开：可导出 PNG、Markdown、JSON 或 XMind')
+  }
   const selectMap = (libraryId: string) => {
     setActivePopover(null)
     setInspectorOpen(false)
     setSelectedId(libraryId)
   }
+  const guideOpen = guideRequested || (galleryState === 'ready' && scope === 'session' && maps.length === 0 && !onboardingSeen)
 
   return createElement('main', { 'data-chat-mindmap-root': 'true', style: panelStyle() },
     createElement('style', null, MINDMAP_CHROME_CSS),
@@ -759,6 +803,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
         createElement('button', { type: 'button', disabled: !record, onClick: toggleInspector, style: compactButtonStyle(inspectorVisible), title: '节点属性和脑图样式', 'aria-label': '打开节点属性', 'aria-pressed': inspectorVisible, 'data-mm-action': 'true' }, '属性'),
         createElement(DswButton, { variant: 'primary', disabled: regenerateUnavailableWhileRunning(panelRun) || !record, onClick: () => { setActivePopover(null); setRegenDraft(instruction); setRegenOpen(true) }, title: '重新生成（fork 子代理）', 'aria-label': '重新生成脑图', 'data-toolbar-regenerate': 'true', 'data-mm-action': 'true', style: { ...compactButtonStyle(true), background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#111827)' } }, '重新生成'),
         createElement('button', { type: 'button', disabled: !record, onClick: toggleMorePopover, style: compactButtonStyle(moreVisible), 'aria-label': '更多脑图操作', 'aria-pressed': moreVisible, 'data-mm-action': 'true' }, '更多'),
+        createElement('button', { type: 'button', onClick: openGuide, style: compactButtonStyle(guideOpen), 'aria-label': '打开脑图使用指南', 'aria-pressed': guideOpen, 'data-mm-action': 'true' }, '指南'),
         createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.toggleFullscreen(), style: { ...compactButtonStyle(), minWidth: '32px', padding: '6px' }, title: '全屏画布', 'aria-label': '全屏画布', 'data-mm-action': 'true' }, '⛶'),
       ),
     ),
@@ -801,7 +846,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
             createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomOut(), style: zoomButtonStyle(), 'aria-label': '缩小画布', 'data-mm-action': 'true' }, '−'),
             createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomIn(), style: zoomButtonStyle(), 'aria-label': '放大画布', 'data-mm-action': 'true' }, '＋'),
           ),
-        ) : createElement('div', { style: { display: 'grid', placeItems: 'center', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'auto' } }, createElement(EmptyState, { kind: galleryState === 'failed' ? 'capability' : scope === 'workspace' ? 'workspace' : 'session', localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined), onCreate: galleryState === 'ready' && scope === 'session' ? () => { setActivePopover(null); setSidebarOpen(true); setShowCreate(true); setStatus('已打开从文本创建；也可回到聊天让 Agent 根据上下文生成') } : undefined })),
+        ) : createElement('div', { style: { display: 'grid', placeItems: 'center', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'auto' } }, createElement(EmptyState, { kind: galleryState === 'failed' ? 'capability' : scope === 'workspace' ? 'workspace' : 'session', localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined), onCreate: galleryState === 'ready' && scope === 'session' ? openCreateFromGuide : undefined, onOpenGuide: galleryState === 'ready' && scope === 'session' ? openGuide : undefined })),
       ),
       utilityVisible && record ? inspectorVisible
         ? createElement(NodeInspector, { record, nodeDraft, onDraftChange: (next) => setNodeDraft(next), onSave: saveNode, onClose: cancelNodeDraft, onVisualConfig: visualConfig })
@@ -809,6 +854,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
         : null,
     ),
     regenOpen && record ? createElement(RegenerateModal, { record, panelRunning: regenerateUnavailableWhileRunning(panelRun), sessionAvailable: Boolean(props.sessions.binding(sessionId)?.session), draft: regenDraft, onDraftChange: setRegenDraft, onClose: () => setRegenOpen(false), onConfirm: () => regenerate(regenDraft) }) : null,
+    createElement(MindmapGuide, { open: guideOpen, localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined), hasMap: record !== null, onDismiss: dismissGuide, onCreate: openCreateFromGuide, onOpenInspector: openInspectorFromGuide, onOpenMore: openMoreFromGuide }),
     createElement('span', { role: 'status', 'data-mm-glass': 'true', style: { ...glassSurfaceStyle(), position: 'absolute', left: sidebarOpen ? (sidebarCompact ? '84px' : '272px') : '20px', bottom: '18px', zIndex: 3, maxWidth: 'min(520px, calc(100% - 48px))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '5px 9px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px', pointerEvents: 'none' } }, status),
   )
 }
