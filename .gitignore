@@ -4,3 +4,4 @@ lib/
 *.tgz
 .test-mindmap-home/
 .npm-cache/
+docs/

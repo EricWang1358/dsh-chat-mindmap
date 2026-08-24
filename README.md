@@ -1,62 +1,82 @@
 # 🧠 DSH Chat Mindmap
 
-> **在 DSH 里把任何对话、PDF、文档变成可编辑、可导出、可打印的交互式思维导图。**
+> 把 DSH 对话上下文变成可编辑、可协作整理、可导出的思维导图。
 
-一个插件，三个能力：
+[![npm](https://img.shields.io/npm/v/@ericwang1358/dsh-chat-mindmap?label=npm)](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap)
+[![license](https://img.shields.io/npm/l/@ericwang1358/dsh-chat-mindmap)](LICENSE)
 
-| 💬 聊天生成 | ✏️ 可视化编辑 | 🖨️ 结构化导出 |
-|---|---|---|
-| Agent 后台异步生成，不阻塞对话 | SimpleMindMap 全功能画布 | A3 打印 / JSON / MD / XMind / PNG |
+DSH Chat Mindmap 是一个公开发布的 DSH Web 插件。它把 Agent 已掌握的对话上下文整理成结构化脑图，并提供会话范围浏览、画布编辑、版本恢复、重新生成与多格式导出能力。
 
-## ⚡ 安装（一条命令）
+## 安装
+
+### 在 DSH Web 中使用（推荐）
 
 ```bash
 dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap
 ```
 
-重启 DSH Web 即可使用。无需本地构建。
+重启 DSH Web 后，在会话的 **脑图** 标签中打开工作台。
 
-**最低版本：DSH 0.1.0-rc.8** · Node ≥ 22.18
+### 作为 npm 依赖安装
 
-## 🎯 为什么用这个插件？
-
-- **零阻塞生成** — Agent 发起后台 Job，你继续聊天，脑图好了自动出现预览卡
-- **全功能画布** — 拖拽/缩放/折叠/展开/节点备注/撤销/重做/全屏，基于 SimpleMindMap
-- **会话优先** — 默认只看当前会话的图；一键切到整个工作区浏览全部
-- **智能重新生成** — 补充要求后 fork 子代理重建大纲；旧版本一键恢复
-- **A3 打印就绪** — 四种风格预设（经典/极简/创意/学术），自包含 HTML 零外链
-- **安全降级** — 缺什么能力就关什么功能，绝不崩溃
-- **中英双语** — 自动跟随系统语言
-
-## 📋 核心操作流
-
-```
-聊天输入 → generate_chat_mindmap → 后台 Job → SVG 卡片 → 点击打开脑图页
-                                                                    ↓
-面板新建 ← 粘贴文本/MD → 本地构建 → 保存入库                    编辑画布
-                                                                    ↓
-···菜单 → 导出/归档/删除/恢复                              重新生成(fork)
+```bash
+npm install @ericwang1358/dsh-chat-mindmap@latest
 ```
 
-## 🛠 功能矩阵
+适用于将插件纳入自己的 DSH composition 或发布流程。最新公开版本以 [npm Registry](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap) 的 `latest` tag 为准。
 
-| 能力 | 状态 | 说明 |
+## 60 秒上手
+
+1. 在 DSH 对话中调用 `generate_chat_mindmap`，或让 Agent 根据当前上下文生成脑图。
+2. 生成完成后，聊天中的操作卡会直接打开对应脑图页；不依赖聊天容器中的图片预览。
+3. 在 **脑图** 标签中编辑节点、添加备注、切换布局或主题；修改会自动保存。
+4. 使用 **更多操作** 导出、归档、恢复版本或重新生成。
+
+## 你会得到什么
+
+| 从聊天到结构 | 可编辑工作台 | 可交付输出 |
 |---|---|---|
-| 聊天后台生成 | ✅ | fork/spawn 子代理 + dsh-jobs 异步 |
-| 面板本地创建 | ✅ | 粘贴文本/Markdown 同构构建 |
-| SimpleMindMap 画布 | ✅ | 拖拽/缩放/折叠/全屏/小地图/键盘导航 |
-| 自动保存 (700ms) | ✅ | AbortController + 序号围栏防旧回写 |
-| 乐观并发 (CAS) | ✅ | expectedRecordVersion + MINDMAP_CONFLICT 刷新 |
-| Fork 重新生成 | ✅ | 三要素 Modal（补充要求+来源提示+确认） |
-| 恢复上一版本 | ✅ | 原子交换 current/previous |
-| A3 打印导出 | ✅ | 四主题 × 分页 × 目录 × 笔记列 × 溢出报告 |
-| Quiz 题目页 | ✅ | 选择/判断/填空/简答 + 来源校验 |
-| 设置卡 | ✅ | 官方 Plugins tab；只影响新图 |
-| 中英双语 | ✅ | 字典完整性脚本断言零缺键 |
-| 能力降级 | ✅ | §15 六行逐行 fake 驱动测试覆盖 |
+| 后台 Job 异步生成，不阻塞继续对话 | SimpleMindMap 画布，支持节点编辑、备注、折叠、撤销/重做与全屏 | PNG、Markdown、JSON、XMind，以及 A3 打印 HTML |
 
-## 🔧 技术栈
+## 核心能力
 
-SimpleMindMap · React 18 · TypeScript · tsdown · schemastery settings · cordis effects
+- **会话优先，工作区可见**：默认只显示当前会话脑图；可切换到整个工作区。所有读取与写入都受 session/workspace identity fence 保护。
+- **稳定协作**：自动保存使用取消与序号围栏；并发编辑使用 `expectedRecordVersion` CAS，冲突后刷新而非静默覆盖。
+- **智能重新生成**：可附加补充要求，通过 DSH fork 子代理重新整理；运行中的任务可取消，旧版本可恢复。
+- **设计化画布**：深色磨砂玻璃工作台、固定宽度范围切换、互斥的节点属性与更多操作面板，减少重叠和布局抖动。
+- **能力可降级**：DSH 未提供 jobs、subagents 或 settings 时，相关入口会明确禁用，不影响脑图工作台加载。
+- **中英双语**：自动跟随 DSH/浏览器语言偏好。
 
-## License MIT
+## 使用流程
+
+```text
+聊天上下文 → generate_chat_mindmap → 后台生成任务 → 操作卡直达脑图页
+                                                   ↓
+当前会话 ↔ 整个工作区 → 编辑 / 自动保存 / 版本恢复 / 重新生成
+                                                   ↓
+                                      更多操作 → 导出 / 归档 / 删除
+```
+
+## 兼容性与边界
+
+- 运行环境：DSH Web、Node.js `>=22.18.0 <23`。
+- 生成能力依赖宿主提供的 Agent、jobs 与 fork/subagent 服务；没有这些可选能力时仍可浏览、编辑和导出已有脑图。
+- 插件不会新增第三方数据传输服务；生成内容使用你现有 DSH Agent/provider 配置，脑图记录按 workspace 作用域保存。
+- 聊天结果使用可访问的“打开脑图”操作，不再把 PNG/SVG 预览作为聊天容器的关键路径。
+
+## 为贡献者准备
+
+```bash
+npm ci --legacy-peer-deps
+npm run typecheck
+npm test
+npm run verify:package
+```
+
+完整发布门禁还包括 `npm run verify:sast` 与 `npm run verify:bundle`。请不要使用 `npm audit fix --force` 改写锁定依赖；依赖升级应独立提交并经过完整 CI。
+
+## 支持与许可
+
+- 源码与问题反馈：[GitHub Repository](https://github.com/EricWang1358/dsh-chat-mindmap) · [Issues](https://github.com/EricWang1358/dsh-chat-mindmap/issues)
+- 发布包：[npm](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap)
+- 许可：[MIT](LICENSE)
