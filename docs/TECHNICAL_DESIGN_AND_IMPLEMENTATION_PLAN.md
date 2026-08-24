@@ -1,6 +1,7 @@
 # DSH Chat Mindmap 技术设计与实施计划
 
-> 状态：历史设计基线 / 0.2.x 候选，不是 0.1.1 验收清单
+> 状态：历史设计基线 / 0.2.x 候选，不是当前产品说明或验收清单。
+> 当前用户可见行为、安装方式与能力边界以仓库根目录 [`README.md`](../README.md) 为准；本文中关于聊天 SVG 预览 dialog 的方案已被“操作卡直达对应脑图页”取代。
 > 目标版本：下一次 breaking minor（建议 `0.2.0`）
 > 基线：`0.1.0`，2026-08-19 本地 `npm test` 与 `npm run typecheck` 均通过
 > 计划用途：记录曾提议的架构方向；0.1.1 继续采用公开 rc8 API、panel-only fork 与 `current + previous` 两代模型，节点级 Agent、patch workflow、统一历史和 revision retention 迁移留到 0.2.x

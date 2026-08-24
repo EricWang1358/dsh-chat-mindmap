@@ -1,6 +1,6 @@
 # Release Readiness Report — dsh-chat-mindmap
 
-> 生成时间：S5 阶段末。**发布动作（npm publish / git tag / version bump）尚未执行，等待人工确认。**
+> 历史阶段报告：保留用于追溯 S5 验收，不反映当前发布状态或产品交互。当前安装方式、用户功能与公开发布信息以仓库根目录 [`README.md`](../README.md) 为准。
 
 ## 门禁矩阵（全绿 ✅）
 
