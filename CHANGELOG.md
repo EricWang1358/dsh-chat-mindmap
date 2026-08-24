@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.5 — 2026-08-24
+
+### Fixed
+- 修复脑图自动保存、外观配置保存和冲突刷新缺少 session scope，导致编辑结果无法提交的问题。
+- 为详情、revision、归档、恢复、删除、重新生成和 panel-run 操作统一增加 workspace 归属校验。
+- 修复重新生成的 `expectedRecordVersion` 未传入执行器，避免并发修改被覆盖。
+- 新建脑图必须解析到真实 workspace；无法解析时明确拒绝，旧的 `legacy-unscoped` 数据仍按兼容路径读取。
+- 补齐 `/maps/:id/archive` REST 路由，并加入 live session、workspace 和 CAS 校验。
+- 修复切换会话后图库缓存和当前脑图详情未重新加载的问题。
+- 修复聊天 SVG 预览卡读取 scoped revision 时缺少当前 sessionId 的问题。
+- 聊天工具生成和预览统一增加 workspace identity fence，避免跨工作区读写脑图。
+- 兼容部分模型无法调用 `structured_output` 时返回的合法 JSON 文本，同时继续执行严格 outline schema 校验，避免误报 `GENERATION_FAILED`。
+- 接受根标题加 Markdown bullet 子节点的合法树状大纲，修复模型返回列表式树结构时误报 `INVALID_AGENT_OUTLINE`。
+- 兼容 `structured` 结果为 JSON 字符串或有限层级 data/value/result/output/content 包装的模型路由返回。
+- 聊天预览改为 PNG 优先、SVG 回退，并将导出画布固定为 1280×720、卡片图片限制为 620×360，避免 SVG 在聊天容器中显示异常。
+
+### Verification
+- 完整测试、TypeScript typecheck、发布包校验、bundle budget 和 SAST 均通过。
+
 ## 0.1.1 — 2026-08-20
 
 ### Fixed

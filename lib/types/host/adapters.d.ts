@@ -29,6 +29,9 @@ export interface PanelStartInput {
     /** External cancellation channel (e.g. user cancel); owned by the caller. */
     controller?: AbortController;
     timeoutMs?: number;
+    /** Version observed by the route before accepting this generation. */
+    expectedRecordVersion?: number;
+    sessionId?: string;
 }
 /**
  * Panel-originated generation adapter (P2): wires lock → registry → executor

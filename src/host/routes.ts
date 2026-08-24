@@ -224,6 +224,24 @@ async function loadExisting(deps: MindmapRouteDeps, id: string): Promise<Mindmap
   return record
 }
 
+function sessionIdOf(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function assertRecordAccess(deps: MindmapRouteDeps, record: MindmapRecord, rawSessionId: unknown, requireSession = false): string {
+  const sessionId = sessionIdOf(rawSessionId)
+  const scoped = typeof record.workspaceKey === 'string' && record.workspaceKey !== 'legacy-unscoped'
+  if (!sessionId) {
+    if (requireSession || scoped) throw new DomainError('WORKSPACE_SCOPE_MISMATCH', 'mindmap not found in this workspace')
+    return ''
+  }
+  if (scoped) {
+    const callerWorkspace = deps.workspaceKeyOfSession?.(sessionId)
+    if (!callerWorkspace || callerWorkspace !== record.workspaceKey) throw new DomainError('WORKSPACE_SCOPE_MISMATCH', 'mindmap not found in this workspace')
+  }
+  return sessionId
+}
+
 interface CreateBody {
   title?: string
   document: MindmapDocument
@@ -301,6 +319,7 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
     const revisionId = decodeSegment(revisionMatch[2]!, REVISION_ID_PATTERN, REVISION_ID_MAX_LENGTH, 'revision id')
     const record = await (deps.loadRecord ?? getMindmap)(libraryId)
     if (!record) throw new DomainError('MINDMAP_REVISION_EXPIRED', 'mindmap revision expired')
+    assertRecordAccess(deps, record, url.searchParams.get('sessionId'))
     const document = revisionIdOf(record.current) === revisionId ? record.current : record.previous && revisionIdOf(record.previous) === revisionId ? record.previous : null
     if (!document) throw new DomainError('MINDMAP_REVISION_EXPIRED', 'mindmap revision expired')
     writeJson(res, 200, { ok: true, value: { libraryId, revisionId, title: document.title, document, config: record.config } })
@@ -313,7 +332,10 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
     if (!isRecord(bodyValue)) throw new RouteError(400, 'INVALID_REQUEST', 'request body must be an object')
     requireLiveAgent(deps, bodyValue.sessionId)
     const expectedRecordVersion = requireExpectedRecordVersion(bodyValue)
-    const restored = await (deps.restoreRecord ?? restorePreviousMindmap)(restoreMatch[1]!, { expectedRecordVersion })
+    const libraryId = decodeSegment(restoreMatch[1]!, LIBRARY_ID_PATTERN, LIBRARY_ID_MAX_LENGTH, 'library id')
+    const existing = await loadExisting(deps, libraryId)
+    assertRecordAccess(deps, existing, bodyValue.sessionId, true)
+    const restored = await (deps.restoreRecord ?? restorePreviousMindmap)(libraryId, { expectedRecordVersion })
     if (!restored) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap not found')
     writeJson(res, 200, { ok: true, value: restored })
     return
@@ -325,8 +347,10 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
     if (!isRecord(bodyValue)) throw new RouteError(400, 'INVALID_REQUEST', 'request body must be an object')
     requireLiveAgent(deps, bodyValue.sessionId)
     const libraryId = decodeSegment(regenerateMatch[1]!, LIBRARY_ID_PATTERN, LIBRARY_ID_MAX_LENGTH, 'library id')
-    await loadExisting(deps, libraryId)
+    const existing = await loadExisting(deps, libraryId)
+    assertRecordAccess(deps, existing, bodyValue.sessionId, true)
     const expectedRecordVersion = requireExpectedRecordVersion(bodyValue)
+    if (existing.recordVersion !== expectedRecordVersion) throw new DomainError('MINDMAP_CONFLICT', 'mindmap conflict')
     if (!deps.startPanelRun) throw new DomainError('CAPABILITY_UNAVAILABLE', 'panel regeneration is not wired in this deployment')
     const view = await deps.startPanelRun({
       libraryId,
@@ -343,8 +367,18 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
   if (panelRunMatch && (method === 'GET' || method === 'DELETE')) {
     const runId = decodeSegment(panelRunMatch[1]!, RUN_ID_PATTERN, RUN_ID_MAX_LENGTH, 'run id')
     if (method === 'GET') {
-      writeJson(res, 200, { ok: true, value: deps.panelRuns.getViewOrInterrupted(runId) })
+      const view = deps.panelRuns.getViewOrInterrupted(runId)
+      if (view.libraryId) {
+        const record = await loadExisting(deps, view.libraryId)
+        assertRecordAccess(deps, record, url.searchParams.get('sessionId') || view.sessionId, true)
+      }
+      writeJson(res, 200, { ok: true, value: view })
       return
+    }
+    const view = deps.panelRuns.getViewOrInterrupted(runId)
+    if (view.libraryId) {
+      const record = await loadExisting(deps, view.libraryId)
+      assertRecordAccess(deps, record, url.searchParams.get('sessionId') || view.sessionId, true)
     }
     const cancelled = deps.panelRuns.cancel(runId)
     writeJson(res, 200, { ok: true, value: { runId, cancelled } })
@@ -358,7 +392,9 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
     const archived = archivedParam === 'true' ? true : archivedParam === 'false' ? false : undefined
     if (archivedParam !== null && archived === undefined) throw new RouteError(400, 'INVALID_REQUEST', 'archived must be true or false')
     const sessionId = url.searchParams.get('sessionId') ?? undefined
-    const workspaceId = scope === 'workspace' && sessionId ? deps.workspaceKeyOfSession?.(sessionId) : undefined
+    if (scope === 'workspace' && !sessionId) throw new RouteError(409, 'SESSION_UNAVAILABLE', 'a live session is required for workspace map listing')
+    const workspaceId = scope === 'workspace' ? deps.workspaceKeyOfSession?.(sessionId!) : undefined
+    if (scope === 'workspace' && !workspaceId) throw new RouteError(409, 'SESSION_UNAVAILABLE', 'workspace could not be resolved for this session')
     const records = await (deps.listRecords ?? listMindmaps)({
       ...(workspaceId ? { workspaceId } : {}),
       ...(sessionId ? { sessionId } : {}),
@@ -369,15 +405,36 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
   }
 
   if (pathname.endsWith('/maps') && method === 'POST') {
-    requireLiveAgent(deps, url.searchParams.get('sessionId') ?? undefined)
     const input = parseCreateBody(await readJsonBody(req))
+    const sessionId = url.searchParams.get('sessionId') ?? undefined
+    requireLiveAgent(deps, sessionId)
+    const workspaceKey = deps.workspaceKeyOfSession?.(sessionId!)
+    if (!workspaceKey) throw new RouteError(409, 'SESSION_UNAVAILABLE', 'workspace could not be resolved for this session')
     const record = await (deps.saveRecord ?? saveMindmap)({
       title: input.title ?? input.document.title,
       document: input.document,
       ...(input.config ? { config: input.config } : {}),
       ...(input.source ? { source: input.source } : {}),
+      workspaceKey,
     })
     writeJson(res, 201, { ok: true, value: record })
+    return
+  }
+
+  const archiveMatch = /\/maps\/([^/]+)\/archive$/.exec(pathname)
+  if (archiveMatch && method === 'POST') {
+    const bodyValue = await readJsonBody(req)
+    if (!isRecord(bodyValue)) throw new RouteError(400, 'INVALID_REQUEST', 'request body must be an object')
+    const sessionId = typeof bodyValue.sessionId === 'string' ? bodyValue.sessionId : url.searchParams.get('sessionId')
+    requireLiveAgent(deps, sessionId)
+    const libraryId = decodeSegment(archiveMatch[1]!, LIBRARY_ID_PATTERN, LIBRARY_ID_MAX_LENGTH, 'library id')
+    const existing = await loadExisting(deps, libraryId)
+    assertRecordAccess(deps, existing, sessionId, true)
+    const expectedRecordVersion = requireExpectedRecordVersion(bodyValue)
+    if (bodyValue.archived !== true && bodyValue.archived !== false) throw new RouteError(400, 'INVALID_REQUEST', 'archived must be a boolean')
+    const archived = await (deps.patchRecord ?? updateMindmap)(libraryId, { archived: bodyValue.archived, expectedRecordVersion })
+    if (!archived) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap not found')
+    writeJson(res, 200, { ok: true, value: archived })
     return
   }
 
@@ -385,13 +442,8 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
   if (mapMatch) {
     const id = decodeSegment(mapMatch[1]!, LIBRARY_ID_PATTERN, LIBRARY_ID_MAX_LENGTH, 'library id')
     if (method === 'GET') {
-      const record = await (deps.loadRecord ?? getMindmap)(id)
-      if (!record) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap not found')
-      const sessionIdParam = url.searchParams.get('sessionId') ?? undefined
-      if (sessionIdParam && typeof record.workspaceKey === 'string' && record.workspaceKey !== 'legacy-unscoped') {
-        const callerWorkspace = deps.workspaceKeyOfSession?.(sessionIdParam)
-        if (callerWorkspace !== undefined && callerWorkspace !== record.workspaceKey) throw new DomainError('WORKSPACE_SCOPE_MISMATCH', 'mindmap not found in this workspace')
-      }
+      const record = await loadExisting(deps, id)
+      assertRecordAccess(deps, record, url.searchParams.get('sessionId'))
       writeJson(res, 200, { ok: true, value: record })
       return
     }
@@ -399,7 +451,8 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
       const bodyValue = await readJsonBody(req)
       if (!isRecord(bodyValue)) throw new RouteError(400, 'INVALID_REQUEST', 'request body must be an object')
       requireLiveAgent(deps, bodyValue.sessionId)
-      await loadExisting(deps, id)
+      const existing = await loadExisting(deps, id)
+      assertRecordAccess(deps, existing, bodyValue.sessionId, true)
       const patch = parsePatchBody(bodyValue)
       const record = await (deps.patchRecord ?? updateMindmap)(id, {
         title: patch.title,
@@ -415,8 +468,10 @@ async function dispatch(deps: MindmapRouteDeps, req: IncomingMessage, res: Serve
     if (method === 'DELETE') {
       const bodyValue = await readJsonBody(req)
       const body = isRecord(bodyValue) ? bodyValue : {}
-      requireLiveAgent(deps, typeof body.sessionId === 'string' ? body.sessionId : url.searchParams.get('sessionId'))
-      await loadExisting(deps, id)
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : url.searchParams.get('sessionId')
+      requireLiveAgent(deps, sessionId)
+      const existing = await loadExisting(deps, id)
+      assertRecordAccess(deps, existing, sessionId, true)
       const expectedFromQuery = url.searchParams.get('expectedRecordVersion')
       let expectedRecordVersion: number | undefined
       if (typeof body.expectedRecordVersion === 'number') expectedRecordVersion = body.expectedRecordVersion

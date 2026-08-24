@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import React from 'react'
-import { cycleFocus, DialogSurface } from '../lib/client/preview/dialog.js'
+import { cycleFocus, DialogSurface, ImagePreviewDialog } from '../lib/client/preview/dialog.js'
 
 { // cycleFocus pure behavior: step, both wraps, empty list
   assert.equal(cycleFocus(3, 0, true), 1)
@@ -27,9 +27,10 @@ import { cycleFocus, DialogSurface } from '../lib/client/preview/dialog.js'
 
 { // static structure: dialog semantics, image, single close affordance
   const html = renderToStaticMarkup(React.createElement(DialogSurface, { src: 'blob:x', alt: '示例图 思维导图', onClose() {} }))
+  assert.equal(typeof ImagePreviewDialog, 'function')
   assert.equal(html.includes('role="dialog"'), true)
   assert.equal(html.includes('aria-modal="true"'), true)
-  assert.equal(html.includes('aria-label="脑图 SVG 预览"'), true)
+  assert.equal(html.includes('aria-label="脑图图片预览"'), true)
   assert.equal(html.includes('src="blob:x"'), true)
   assert.equal(html.includes('alt="示例图 思维导图"'), true)
   assert.equal(html.includes('关闭预览'), true)

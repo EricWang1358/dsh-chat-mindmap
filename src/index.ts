@@ -176,6 +176,8 @@ export function apply(ctx: PluginContext): void {
       parent,
       instruction: request.instruction,
       supplementalContext: request.supplementalContext,
+      expectedRecordVersion: request.expectedRecordVersion,
+      sessionId: request.sessionId,
       timeoutMs: GENERATION_TIMEOUT_MS,
     })
     return view

@@ -36,6 +36,7 @@ export interface SubagentRunLike {
     result: Promise<{
         stopReason: string;
         structured?: unknown;
+        output?: unknown;
         diagnostic?: string;
     }>;
     dispose(): Promise<void>;
@@ -146,6 +147,7 @@ export interface CommitGenerationInput {
     title: string;
     config: MindmapConfig;
     source?: MindmapSource;
+    workspaceKey?: string;
     /** Record version observed when the generation was accepted (§9.1). */
     baselineRecordVersion?: number;
 }
