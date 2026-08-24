@@ -315,9 +315,17 @@ export async function listMindmaps(filters?: { workspaceId?: string; sessionId?:
 }
 
 function summaryMatches(summary: SummaryIndexEntry, filters?: { workspaceId?: string; sessionId?: string; archived?: boolean }): boolean {
-  return (filters?.archived === undefined ? !summary.archived : summary.archived === filters.archived) &&
-    (!filters?.workspaceId || summary.source?.workspaceId === filters.workspaceId) &&
-    (!filters?.sessionId || summary.source?.sessionId === filters.sessionId)
+  const archivedOk = filters?.archived === undefined ? !summary.archived : summary.archived === filters.archived
+  if (!archivedOk) return false
+  // No scoping requested → all non-archived records visible.
+  if (!filters?.sessionId && !filters?.workspaceId) return true
+  // Workspace scope: match record.workspaceKey against derived hash;
+  // legacy-unscoped records remain visible to every workspace.
+  if (filters.workspaceId) {
+    return !summary.workspaceKey || summary.workspaceKey === 'legacy-unscoped' || summary.workspaceKey === filters.workspaceId
+  }
+  // Session scope: match source.sessionId; legacy records without one stay visible.
+  return !summary.source?.sessionId || summary.source?.sessionId === filters.sessionId
 }
 
 export async function getMindmap(id: string): Promise<MindmapRecord | null> {
