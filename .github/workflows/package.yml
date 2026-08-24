@@ -32,6 +32,7 @@ jobs:
 
       - name: Validate package and bundle budget
         run: |
+          node scripts/verify-release-readiness.mjs
           npm run verify:package
           npm run verify:bundle
 

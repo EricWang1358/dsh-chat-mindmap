@@ -51,6 +51,9 @@ jobs:
       - name: Static security scan
         run: npm run verify:sast
 
+      - name: Verify public release readiness
+        run: node scripts/verify-release-readiness.mjs
+
       - name: Verify publishable package
         run: npm run verify:package
 

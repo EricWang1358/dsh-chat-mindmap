@@ -70,6 +70,8 @@ npm install @ericwang1358/dsh-chat-mindmap@latest
 npm ci --legacy-peer-deps
 npm run typecheck
 npm test
+npm run verify:sast
+node scripts/verify-release-readiness.mjs
 npm run verify:package
 ```
 
