@@ -35,6 +35,7 @@ const files = [
   'src/client/locale.ts',
   'src/client/canvas-theme.ts',
   'src/client/components/BrainmapView.tsx',
+  'src/client/components/mindmap-navigation.ts',
   'src/client/components/MindmapSettingsCard.tsx',
   'src/client/components/ui/primitives.tsx',
   'src/client/preview/artifact-html.ts',
