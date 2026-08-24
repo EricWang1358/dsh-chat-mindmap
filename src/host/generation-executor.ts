@@ -1,4 +1,4 @@
-import { buildStrictOutlineDocument, validateAgentOutlineResult } from '../domain/generation.js'
+import { buildStrictOutlineDocument, validateAgentOutlineResult, type AgentOutlineResult } from '../domain/generation.js'
 import { mindmapNodeNotesForPrompt, mindmapToMarkdown } from '../core.js'
 import type { MindmapDocument } from '../core.js'
 import type { MindmapConfig, MindmapRecord, MindmapSource } from '../library.js'
@@ -61,7 +61,7 @@ export const OUTLINE_PERSONA =
 
 export interface SubagentRunLike {
   id: string
-  result: Promise<{ stopReason: string; structured?: unknown; diagnostic?: string }>
+  result: Promise<{ stopReason: string; structured?: unknown; output?: unknown; diagnostic?: string }>
   dispose(): Promise<void>
 }
 
@@ -81,6 +81,59 @@ export function selectProvider(runtime: Pick<SubagentRuntimeLike, 'getProvider'>
 function safeDiagnostic(value: unknown): string {
   const text = typeof value === 'string' && value.trim().length > 0 ? value : value instanceof Error ? value.message : 'generation failed'
   return text.slice(0, 500)
+}
+
+function textFromSubagentOutput(output: unknown): string {
+  if (typeof output === 'string') return output.trim()
+  if (!Array.isArray(output)) return ''
+  return output
+    .map((block) => {
+      if (typeof block === 'string') return block
+      if (typeof block === 'object' && block !== null && 'type' in block && (block as { type?: unknown }).type === 'text' && typeof (block as { text?: unknown }).text === 'string') return (block as { text: string }).text
+      return ''
+    })
+    .join('')
+    .trim()
+}
+
+/** Accept only exact JSON or a fenced JSON object when structured_output is unavailable. */
+function parseTextOutline(output: unknown): unknown {
+  const text = textFromSubagentOutput(output)
+  if (!text) return undefined
+  const candidate = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+  try { return JSON.parse(candidate) as unknown } catch { return undefined }
+}
+
+function unwrapStructured(value: unknown, depth = 0): unknown {
+  if (depth > 3 || value === undefined || value === null) return undefined
+  if (typeof value === 'string' || Array.isArray(value)) return parseTextOutline(value)
+  if (typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.title === 'string' && typeof record.outline === 'string') return record
+  if (typeof record.title === 'string' && typeof record.content === 'string') return { title: record.title, outline: record.content }
+  for (const key of ['data', 'value', 'result', 'output', 'content']) {
+    const nested = unwrapStructured(record[key], depth + 1)
+    if (nested !== undefined) return nested
+  }
+  return undefined
+}
+
+function outlineCandidates(result: { structured?: unknown; output?: unknown }): unknown[] {
+  const candidates: unknown[] = []
+  for (const value of [result.structured, result.output]) {
+    const candidate = unwrapStructured(value)
+    if (candidate !== undefined && !candidates.includes(candidate)) candidates.push(candidate)
+  }
+  return candidates
+}
+
+function validatedOutlineOf(result: { structured?: unknown; output?: unknown }): AgentOutlineResult {
+  let lastError: unknown
+  for (const candidate of outlineCandidates(result)) {
+    try { return validateAgentOutlineResult(candidate) } catch (error) { lastError = error }
+  }
+  if (lastError) throw lastError
+  return validateAgentOutlineResult(undefined)
 }
 
 export interface OutlineCompleted {
@@ -190,8 +243,8 @@ export async function runOutlineGeneration(
     })
     if (!outcome.settled) return outcome.kind === 'timed_out' ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
     const result = outcome.value
-    if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || ('subagent stopped: ' + result.stopReason)) }
-    const validated = validateAgentOutlineResult(result.structured)
+    if (outlineCandidates(result).length === 0 && result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || ('subagent stopped: ' + result.stopReason)) }
+    const validated = validatedOutlineOf(result)
     const strict = buildStrictOutlineDocument(validated, { maxNodes: input.record.config.maxNodes, contextLimit: input.record.config.contextLimit })
     return { kind: 'completed', document: strict.document, title: strict.document.title, truncated: strict.truncated, childId: run!.id, provider }
   } catch (error) {
@@ -285,8 +338,8 @@ export async function runSourceOutlineGeneration(
     })
     if (!outcome.settled) return outcome.kind === 'timed_out' ? { kind: 'timed_out', diagnostic: 'generation timed out' } : { kind: 'cancelled' }
     const result = outcome.value
-    if (result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || ('subagent stopped: ' + result.stopReason)) }
-    const validated = validateAgentOutlineResult(result.structured)
+    if (outlineCandidates(result).length === 0 && result.stopReason !== 'completed') return { kind: 'failed', diagnostic: safeDiagnostic(result.diagnostic || ('subagent stopped: ' + result.stopReason)) }
+    const validated = validatedOutlineOf(result)
     const strict = buildStrictOutlineDocument(validated, { maxNodes: input.config.maxNodes, contextLimit: input.config.contextLimit })
     return { kind: 'completed', document: strict.document, title: strict.document.title, truncated: strict.truncated, childId: run!.id, provider }
   } catch (error) {
@@ -303,6 +356,7 @@ export interface CommitGenerationInput {
   title: string
   config: MindmapConfig
   source?: MindmapSource
+  workspaceKey?: string
   /** Record version observed when the generation was accepted (§9.1). */
   baselineRecordVersion?: number
 }
@@ -327,6 +381,7 @@ export async function commitGenerationOutcome(input: CommitGenerationInput, deps
     document: input.document,
     config: input.config,
     ...(input.source ? { source: input.source } : {}),
+    ...(input.workspaceKey ? { workspaceKey: input.workspaceKey } : {}),
     rotatePrevious: true,
     ...(typeof input.baselineRecordVersion === 'number' ? { expectedRecordVersion: input.baselineRecordVersion } : {}),
   })

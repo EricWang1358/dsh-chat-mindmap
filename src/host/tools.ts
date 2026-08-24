@@ -178,6 +178,10 @@ export interface ChatMindmapToolDeps {
 
 interface AgentRef { id?: string }
 
+function workspaceMismatch(record: MindmapRecord | null, callerWorkspace: string | undefined): boolean {
+  return Boolean(record && record.workspaceKey && record.workspaceKey !== LEGACY_UNSCOPED_WORKSPACE && callerWorkspace !== record.workspaceKey)
+}
+
 function executeLaunch(deps: ChatMindmapToolDeps, rawArgs: unknown, exec?: { agent?: unknown }): Promise<{ kind: 'background'; jobId: string; libraryId: string }> {
   const loadRecord = deps.loadRecord ?? getMindmap
   const logger = deps.logger
@@ -191,10 +195,13 @@ function executeLaunch(deps: ChatMindmapToolDeps, rawArgs: unknown, exec?: { age
   const input = parseLaunchInput(rawArgs)
   const agent = (exec?.agent ?? undefined) as AgentRef | undefined
   const agentId = typeof agent?.id === 'string' ? agent.id : undefined
+  const workspaceKey = deps.workspaceKeyOfAgent?.(agent)
   const libraryId = input.libraryId ?? reserveLibraryId()
   return (async () => {
     const existing = await loadRecord(libraryId)
     if (input.libraryId && !existing) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap not found')
+    if (workspaceMismatch(existing, workspaceKey)) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap not found')
+    if (!existing && !workspaceKey) throw new DomainError('CAPABILITY_UNAVAILABLE', 'workspace identity unavailable')
     const lock = deps.locks.tryAcquire(libraryId, 'chat-' + randomUUID().replaceAll('-', '').slice(0, 12))
     if (!lock) throw new DomainError('MINDMAP_BUSY', 'a generation for this mindmap is already running')
     try {
@@ -235,6 +242,7 @@ function executeLaunch(deps: ChatMindmapToolDeps, rawArgs: unknown, exec?: { age
                 title: outcome.title,
                 config,
                 source: input.source ?? { kind: 'chat', ...(agentId ? { sessionId: agentId.slice(0, 500) } : {}) },
+                ...(workspaceKey ? { workspaceKey } : {}),
                 ...(existing ? { baselineRecordVersion: existing.recordVersion } : {}),
               },
               deps.save ? { save: deps.save } : {},
@@ -321,7 +329,7 @@ async function executePresent(deps: ChatMindmapToolDeps, rawArgs: unknown, exec?
   // anything scoped requires the caller to resolve into the same workspace.
   // A mismatch degrades to the generic expired shape — zero title/node leak.
   const callerWorkspace = deps.workspaceKeyOfAgent?.(exec?.agent)
-  const mismatched = typeof record.workspaceKey === 'string' && record.workspaceKey !== LEGACY_UNSCOPED_WORKSPACE && callerWorkspace !== undefined && callerWorkspace !== record.workspaceKey
+  const mismatched = workspaceMismatch(record, callerWorkspace)
   if (mismatched) return { libraryId: input.libraryId, revisionId: input.revisionId, title: 'Mind map', nodeCount: 0, state: 'expired' }
   const document = revisionIdOf(record.current) === input.revisionId ? record.current : record.previous && revisionIdOf(record.previous) === input.revisionId ? record.previous : null
   if (!document) return { libraryId: input.libraryId, revisionId: input.revisionId, title: record.title, nodeCount: 0, state: 'expired' }

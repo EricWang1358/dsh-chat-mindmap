@@ -180,10 +180,30 @@ const stoppedOutcome = await runOutlineGeneration({ runtime: stopped.runtime }, 
 assert.equal(stoppedOutcome.kind, 'failed')
 assert.equal(stoppedOutcome.diagnostic, 'caller went away')
 
-const invalid = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Only' } }, dispose: async () => {} })
+const structuredString = scriptedRuntime({ result: { stopReason: 'completed', structured: JSON.stringify({ title: 'Structured string', outline: '# Structured string\n## Child' }) }, dispose: async () => {} })
+const structuredStringOutcome = await runOutlineGeneration({ runtime: structuredString.runtime }, { record })
+assert.equal(structuredStringOutcome.kind, 'completed')
+assert.equal(structuredStringOutcome.title, 'Structured string')
+
+const nestedFallback = scriptedRuntime({ result: { stopReason: 'completed', structured: { result: { data: { title: 'Nested', content: '# Nested\n## Child' } } } }, dispose: async () => {} })
+const nestedFallbackOutcome = await runOutlineGeneration({ runtime: nestedFallback.runtime }, { record })
+assert.equal(nestedFallbackOutcome.kind, 'completed')
+assert.equal(nestedFallbackOutcome.title, 'Nested')
+
+const textFallback = scriptedRuntime({ result: { stopReason: 'completed', output: [{ type: 'text', text: JSON.stringify({ title: 'Text fallback', outline: '# Text fallback\n## Child' }) }] }, dispose: async () => {} })
+const textFallbackOutcome = await runOutlineGeneration({ runtime: textFallback.runtime }, { record })
+assert.equal(textFallbackOutcome.kind, 'completed')
+assert.equal(textFallbackOutcome.title, 'Text fallback')
+
+const fencedFallback = scriptedRuntime({ result: { stopReason: 'error', output: [{ type: 'text', text: '```json\n{\"title\":\"Fenced\",\"outline\":\"# Fenced\\n## Child\"}\n```' }] }, dispose: async () => {} })
+const fencedFallbackOutcome = await runOutlineGeneration({ runtime: fencedFallback.runtime }, { record })
+assert.equal(fencedFallbackOutcome.kind, 'completed')
+assert.equal(fencedFallbackOutcome.title, 'Fenced')
+
+const invalid = scriptedRuntime({ result: { stopReason: 'completed', output: [{ type: 'text', text: 'not JSON' }] }, dispose: async () => {} })
 const invalidOutcome = await runOutlineGeneration({ runtime: invalid.runtime }, { record })
 assert.equal(invalidOutcome.kind, 'failed')
-assert.match(invalidOutcome.diagnostic, /outline is empty/)
+assert.match(invalidOutcome.diagnostic, /title is required/)
 assert.ok(invalidOutcome.diagnostic.length <= 500)
 
 const truncating = scriptedRuntime({ result: { stopReason: 'completed', structured: { title: 'Cap', outline: '# Cap\n## a\n## b\n## c\n## d' } }, dispose: async () => {} })

@@ -7,6 +7,7 @@ export interface PanelRunView {
   libraryId: string
   status: GenerationRunState
   detail: string
+  sessionId?: string
   revisionId?: string
 }
 

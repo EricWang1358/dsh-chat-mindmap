@@ -50,8 +50,9 @@ const primaryHits = viewSrc.split('data-primary-regenerate').length - 1
 assert.equal(primaryHits, 1, 'exactly one primary regenerate control')
 assert.ok(viewSrc.includes('disabled: panelRunning || !sessionAvailable'))
 
-// Restore entry appears only when a previous version exists.
-assert.ok(viewSrc.includes('...(record?.previous ? [createElement(\'button\', { key: \'restore\''))
+// Restore remains conditional even though actions now live in the right-side utility dock.
+assert.ok(viewSrc.includes('...(record.previous ? [createElement(PopoverAction'))
+assert.ok(viewSrc.includes("label: '恢复重新生成前版本'"))
 
 // Mutations carry optimistic concurrency versions.
 assert.ok(viewSrc.includes('expectedRecordVersion: current.recordVersion'), 'autosave PATCH carries recordVersion')

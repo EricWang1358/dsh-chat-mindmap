@@ -26,8 +26,11 @@ export function validateAgentOutlineResult(value: unknown): AgentOutlineResult {
   if (title.length > MAX_OUTLINE_TITLE) throw new DomainError('INVALID_AGENT_OUTLINE', 'agent outline title exceeds 120 characters')
   if (!outline) throw new DomainError('INVALID_AGENT_OUTLINE', 'agent outline is empty')
   if (outline.length > MAX_OUTLINE_CHARS) throw new DomainError('INVALID_AGENT_OUTLINE', 'agent outline exceeds 200000 characters')
-  const headingCount = outline.split(/\r?\n/).filter((line) => /^\s{0,3}#{1,6}\s+\S/.test(line)).length
-  if (headingCount < 2) throw new DomainError('INVALID_AGENT_OUTLINE', 'agent outline needs a root heading and at least one sub heading')
+  const lines = outline.split(/\r?\n/)
+  const headingCount = lines.filter((line) => /^\s{0,3}#{1,6}\s+\S/.test(line)).length
+  const bulletCount = lines.filter((line) => /^\s*[-*+]\s+\S/.test(line)).length
+  if (headingCount < 1) throw new DomainError('INVALID_AGENT_OUTLINE', 'agent outline needs a root heading')
+  if (headingCount + bulletCount < 2) throw new DomainError('INVALID_AGENT_OUTLINE', 'agent outline needs at least one child heading or bullet')
   return { title, outline }
 }
 

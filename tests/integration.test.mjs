@@ -108,10 +108,10 @@ async function routeGet(pathname) {
   const block = { kind: 'toolresult', content: [{ type: 'text', text: payloadText }] }
   const reference = previewReference(block)
   assert.equal(reference.title, '回放图')
-  assert.equal(cardStateOf(reference, 'blob:replayed', null).kind, 'ready')
-  const html = renderToStaticMarkup(React.createElement(CardBody, { reference, url: 'blob:replayed', error: null }))
-  assert.equal(html.includes('src="blob:replayed"'), true)
-  assert.equal(html.includes('打开 回放图 SVG 预览'), true)
+  assert.equal(cardStateOf(reference, 'open-link', null).kind, 'ready')
+  const html = renderToStaticMarkup(React.createElement(CardBody, { reference, error: null }))
+  assert.equal(html.includes('<img'), false)
+  assert.equal(html.includes('打开 回放图 脑图'), true)
 }
 
 { // S6-4 (R2-2): dispose-to-zero across locks, panel runs, and the LRU

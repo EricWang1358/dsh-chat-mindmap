@@ -168,10 +168,31 @@ function assertEnvelope(res, status, code) {
   harness.records.set('map-scoped', makeRecord({ libraryId: 'map-scoped', workspaceKey: 'ws-aaa' }))
   const fenced = await call(harness, 'GET', prefix + '/maps/map-scoped?sessionId=any')
   assertEnvelope(fenced, 404, 'WORKSPACE_SCOPE_MISMATCH')
-  const allowed = await call(harness, 'GET', prefix + '/maps/map-scoped', {})
-  assert.equal(allowed.statusCode, 200)
+  const blockedWithoutSession = await call(harness, 'GET', prefix + '/maps/map-scoped', {})
+  assertEnvelope(blockedWithoutSession, 404, 'WORKSPACE_SCOPE_MISMATCH')
+  const blockedPatch = await call(harness, 'PATCH', prefix + '/maps/map-scoped', { headers: MUT_HEADERS, body: { sessionId: 'any', title: 'Nope', expectedRecordVersion: 7 } })
+  assertEnvelope(blockedPatch, 404, 'WORKSPACE_SCOPE_MISMATCH')
+  const blockedDelete = await call(harness, 'DELETE', prefix + '/maps/map-scoped?sessionId=any&expectedRecordVersion=7', { headers: MUT_HEADERS })
+  assertEnvelope(blockedDelete, 404, 'WORKSPACE_SCOPE_MISMATCH')
   const legacy = await call(harness, 'GET', prefix + '/maps/map-existing?sessionId=sess-ws')
   assert.equal(legacy.statusCode, 200)
+}
+
+{ // archive route uses the same live-session, workspace, and CAS fences
+  const harness = makeDeps({ patchRecord: async (id, patch) => {
+    const existing = harness.records.get(id)
+    if (!existing || existing.recordVersion !== patch.expectedRecordVersion) throw new DomainError('MINDMAP_CONFLICT', 'record version drifted')
+    const next = makeRecord({ libraryId: id, workspaceKey: existing.workspaceKey, recordVersion: existing.recordVersion + 1, archived: patch.archived })
+    harness.records.set(id, next)
+    return next
+  } })
+  harness.records.set('map-scoped', makeRecord({ libraryId: 'map-scoped', workspaceKey: 'ws-bbb' }))
+  const prefix = PLUGIN_ROUTE_PREFIXES[0]
+  const archived = await call(harness, 'POST', prefix + '/maps/map-scoped/archive?sessionId=sess-ws', { headers: MUT_HEADERS, body: { archived: true, expectedRecordVersion: 7 } })
+  assert.equal(archived.statusCode, 200)
+  assert.equal(archived.json().value.archived, true)
+  const stale = await call(harness, 'POST', prefix + '/maps/map-scoped/archive?sessionId=sess-ws', { headers: MUT_HEADERS, body: { archived: false, expectedRecordVersion: 7 } })
+  assertEnvelope(stale, 409, 'MINDMAP_CONFLICT')
 }
 
 { // revision resolution: current hit, previous hit, expired miss
@@ -197,18 +218,23 @@ function assertEnvelope(res, status, code) {
 { // POST /maps create: happy, no live session, invalid document
   const harness = makeDeps()
   const prefix = PLUGIN_ROUTE_PREFIXES[0]
-  const created = await call(harness, 'POST', prefix + '/maps?sessionId=s1', { headers: MUT_HEADERS, body: { document: validDocument(), config: { maxNodes: 120 }, source: { kind: 'chat', name: 'session' } } })
+  const created = await call(harness, 'POST', prefix + '/maps?sessionId=sess-ws', { headers: MUT_HEADERS, body: { document: validDocument(), config: { maxNodes: 120 }, source: { kind: 'chat', name: 'session' } } })
   assert.equal(created.statusCode, 201)
   assert.equal(created.json().value.libraryId, 'map-new')
   assert.equal(harness.calls.save.length, 1)
   assert.equal(harness.calls.save[0].document.title, 'Fresh')
   assert.equal(harness.calls.save[0].title, 'Fresh')
   assert.equal(harness.calls.save[0].config.maxNodes, 120)
+  assert.equal(harness.calls.save[0].workspaceKey, 'ws-bbb')
+  const noWorkspace = makeDeps({ workspaceKeyOfSession: () => undefined })
+  const unresolved = await call(noWorkspace, 'POST', prefix + '/maps?sessionId=s1', { headers: MUT_HEADERS, body: { document: validDocument() } })
+  assertEnvelope(unresolved, 409, 'SESSION_UNAVAILABLE')
+  noWorkspace.dispose()
   const noSession = makeDeps({ agents: undefined })
   const rejected = await call(noSession, 'POST', noSession.webServer ? PLUGIN_ROUTE_PREFIXES[0] + '/maps?sessionId=s1' : '/', { headers: MUT_HEADERS, body: { document: validDocument() } })
   assertEnvelope(rejected, 409, 'SESSION_UNAVAILABLE')
   noSession.dispose()
-  const badDoc = await call(harness, 'POST', prefix + '/maps?sessionId=s1', { headers: MUT_HEADERS, body: { document: { version: 1 } } })
+  const badDoc = await call(harness, 'POST', prefix + '/maps?sessionId=sess-ws', { headers: MUT_HEADERS, body: { document: { version: 1 } } })
   assertEnvelope(badDoc, 400, 'INVALID_REQUEST')
 }
 
@@ -253,6 +279,7 @@ function assertEnvelope(res, status, code) {
 
 { // restore-previous: live-agent gate, CAS gate, restored payload, miss
   const harness = makeDeps()
+  harness.records.set('map-existing', makeRecord())
   const url = PLUGIN_ROUTE_PREFIXES[0] + '/maps/map-existing/restore-previous'
   const restored = await call(harness, 'POST', url, { headers: MUT_HEADERS, body: { sessionId: 's1', expectedRecordVersion: 7 } })
   assert.equal(restored.statusCode, 200)
@@ -297,8 +324,9 @@ function assertEnvelope(res, status, code) {
 { // panel-runs GET and DELETE over the registry
   const harness = makeDeps()
   const prefix = PLUGIN_ROUTE_PREFIXES[0]
-  harness.deps.panelRuns.register({ runId: 'panel-run-nine', libraryId: 'map-existing', status: 'running', detail: '' })
-  const view = await call(harness, 'GET', prefix + '/panel-runs/panel-run-nine')
+  harness.records.set('map-existing', makeRecord())
+  harness.deps.panelRuns.register({ runId: 'panel-run-nine', libraryId: 'map-existing', sessionId: 's1', status: 'running', detail: '' })
+  const view = await call(harness, 'GET', prefix + '/panel-runs/panel-run-nine?sessionId=s1')
   assert.equal(view.statusCode, 200)
   assert.equal(view.json().value.status, 'running')
   const interrupted = await call(harness, 'GET', prefix + '/panel-runs/panel-ghost-run')
@@ -331,7 +359,7 @@ function assertEnvelope(res, status, code) {
   const unknown = await call(harness, 'GET', prefix + '/nowhere')
   assertEnvelope(unknown, 404, 'INVALID_REQUEST')
   const exploding = makeDeps({ saveRecord: async () => { throw new Error('boom') } })
-  const internal = await call(exploding, 'POST', prefix + '/maps?sessionId=s1', { headers: MUT_HEADERS, body: { document: validDocument() } })
+  const internal = await call(exploding, 'POST', prefix + '/maps?sessionId=sess-ws', { headers: MUT_HEADERS, body: { document: validDocument() } })
   assertEnvelope(internal, 500, 'STORAGE_FAILED')
   assert.equal(internal.json().error.message.includes('boom'), false)
   assert.ok(exploding.logs.some((line) => line.includes('boom')), '5xx must reach the logger')

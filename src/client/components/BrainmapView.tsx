@@ -1,11 +1,12 @@
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { createElement, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactElement } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactElement, type ReactNode } from 'react'
 import { buildMindmap, type MindmapDocument, type MindmapNode } from '../../core.js'
 import { ApiError, api, listQueryOf } from '../api.js'
 import { svgPreviewHtml } from '../preview/artifact-html.js'
 import { DswButton, DswStateDot } from './ui/primitives.js'
 import { LAYOUT_OPTIONS, THEME_PRESETS, shellThemeConfig, shellIsDark } from '../canvas-theme.js'
 import { createT, resolveLocale } from '../locale.js'
+import { consumeMindmapTarget } from './mindmap-navigation.js'
 
 type MindMapLike = {
   doExport?: { export(type: string, download: boolean, ...args: unknown[]): Promise<unknown> }
@@ -64,10 +65,29 @@ function asBlob(value: unknown): Blob | null {
   } catch { return null }
 }
 async function loadMindMap(): Promise<MindMapCtor> { const module = await import('../mindmap.js') as unknown as { default: MindMapCtor }; return module.default }
-function panelStyle(): Record<string, string> { return { display: 'flex', flexDirection: 'column', width: '100%', minWidth: '0', height: '100%', minHeight: '0', flex: '1 1 0', overflow: 'hidden', padding: '0', background: 'var(--dsw-alias-bg-base,#f7f8fa)', color: 'var(--dsw-alias-label-primary,#202124)', font: '13px/1.45 system-ui,sans-serif' } }
-function buttonStyle(): Record<string, string> { return { border: '1px solid var(--dsw-alias-border-l2,#e8eaed)', background: 'var(--dsw-alias-button-tool-bar-fill,#fff)', color: 'inherit', borderRadius: '4px', padding: '5px 8px', cursor: 'pointer', transition: 'all .18s ease', fontSize: '13px' } }
-function inputStyle(): Record<string, string> { return { display: 'block', width: '100%', boxSizing: 'border-box', padding: '7px', borderRadius: '4px', border: '1px solid var(--dsw-alias-border-l2,#e8eaed)', background: 'var(--dsw-alias-bg-base,#fff)', color: 'inherit' } }
-function zoomButtonStyle(): Record<string, string> { return { border: '0', background: 'transparent', color: 'inherit', borderRadius: '4px', minWidth: '28px', padding: '4px 5px', cursor: 'pointer', font: 'inherit' } }
+type ChromeStyle = Record<string, string | number>
+type MindmapScope = 'session' | 'workspace'
+type ActivePopover = 'more' | null
+
+/** Web approximation of a dark frosted-glass surface, layered over DSH tokens. */
+function glassSurfaceStyle(emphasis: 'quiet' | 'strong' = 'quiet'): ChromeStyle {
+  return {
+    border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 68%, var(--dsw-alias-label-primary,#e2e8f0) 12%)',
+    borderRadius: '14px',
+    background: emphasis === 'strong'
+      ? 'linear-gradient(135deg, color-mix(in srgb, var(--dsw-alias-bg-layer-1,#171e2e) 78%, transparent), color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 88%, transparent))'
+      : 'color-mix(in srgb, var(--dsw-alias-bg-layer-1,#171e2e) 76%, transparent)',
+    boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 12%, transparent), var(--dsw-shadow-lv3,0 12px 30px rgba(0,0,0,.18))',
+    backdropFilter: 'blur(18px) saturate(135%)',
+    WebkitBackdropFilter: 'blur(18px) saturate(135%)',
+  }
+}
+
+function panelStyle(): ChromeStyle { return { display: 'flex', flexDirection: 'column', width: '100%', minWidth: '0', height: '100%', minHeight: '0', flex: '1 1 0', overflow: 'hidden', position: 'relative', isolation: 'isolate', padding: '0', background: 'linear-gradient(145deg, color-mix(in srgb, var(--dsw-alias-bg-layer-2,#23262d) 92%, var(--dsw-alias-bg-base,#111827)), var(--dsw-alias-bg-base,#111827))', color: 'var(--dsw-alias-label-primary,#e2e8f0)', font: '13px/1.45 system-ui,sans-serif' } }
+function buttonStyle(): ChromeStyle { return { border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l2,#475569) 86%, transparent)', background: 'color-mix(in srgb, var(--dsw-alias-button-tool-bar-fill,#1e293b) 82%, transparent)', color: 'inherit', borderRadius: '10px', padding: '6px 9px', cursor: 'pointer', transition: 'transform .18s ease, filter .18s ease, background .18s ease', fontSize: '13px', lineHeight: '18px' } }
+function inputStyle(): ChromeStyle { return { display: 'block', width: '100%', boxSizing: 'border-box', padding: '8px 9px', borderRadius: '10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l2,#475569) 86%, transparent)', background: 'color-mix(in srgb, var(--dsw-alias-bg-base,#111827) 78%, transparent)', color: 'inherit' } }
+function zoomButtonStyle(): ChromeStyle { return { border: '0', background: 'transparent', color: 'inherit', borderRadius: '8px', minWidth: '30px', minHeight: '30px', padding: '4px 6px', cursor: 'pointer', font: 'inherit' } }
+function compactButtonStyle(selected = false): ChromeStyle { return { ...buttonStyle(), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', minHeight: '32px', padding: '6px 9px', borderColor: selected ? 'color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 74%, var(--dsw-alias-border-l2,#475569))' : 'color-mix(in srgb, var(--dsw-alias-border-l2,#475569) 86%, transparent)', background: selected ? 'color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 16%, var(--dsw-alias-button-tool-bar-fill,#1e293b))' : 'color-mix(in srgb, var(--dsw-alias-button-tool-bar-fill,#1e293b) 82%, transparent)', fontWeight: selected ? '650' : '560', whiteSpace: 'nowrap' } }
 function nextPaint(): Promise<void> { return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))) }
 
 type SelectedNode = { id: string; title: string; note: string }
@@ -294,12 +314,7 @@ function MapCanvas({ record, onDocumentChange, onActions, onFullscreenChange, on
   return createElement('div', { ref: fullscreenRef, 'aria-busy': renderState === 'loading', style: { position: 'relative', width: '100%', minWidth: 0, minHeight: 0, flex: '1 1 0', borderRadius: '4px', overflow: 'hidden', background: shellDark ? 'var(--dsw-alias-bg-layer-2,#24262c)' : 'var(--dsw-alias-bg-base,#f9fafb)' } },
     createElement('style', null, [
       '@keyframes dsh-chat-mindmap-spin { to { transform: rotate(360deg); } }',
-      '[data-toolbar-regenerate]:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}',
-      '[data-toolbar-regenerate]:active:not(:disabled){transform:translateY(0)}',
-      'button:hover:not(:disabled){filter:brightness(.96)}',
-      'button:disabled{opacity:.45;cursor:not-allowed}',
-      'aside{transition:width .22s ease,padding .22s ease}',
-      '.item:hover{filter:brightness(.97)}',
+      '[data-chat-mindmap-root] button:disabled{opacity:.45;cursor:not-allowed}',
     ].join('\n')),
     fullscreen ? createElement('div', { style: { position: 'absolute', top: '12px', left: '12px', right: '12px', zIndex: 4, display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'none' } },
       createElement('span', { style: { padding: '5px 8px', borderRadius: '4px', background: 'color-mix(in srgb, var(--dsw-alias-bg-base,#0f172a) 84%, transparent)', color: 'var(--dsw-alias-label-primary,#e2e8f0)', pointerEvents: 'auto' } }, '全屏编辑：双击节点直接改名，或使用右侧节点属性'),
@@ -349,6 +364,100 @@ function RegenerateModal({ record, panelRunning, sessionAvailable, draft, onDraf
         createElement(DswButton, { variant: 'primary', type: 'submit', disabled: panelRunning || !sessionAvailable, 'data-primary-regenerate': 'true' }, panelRunning ? '生成中…' : '确认生成'))))
 }
 
+function PopoverSectionLabel({ children }: { children: ReactNode }): ReactElement {
+  return createElement('small', { style: { padding: '6px 7px 3px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px', fontWeight: '650', letterSpacing: '.02em' } }, children)
+}
+
+function PopoverAction({ label, selected = false, checked, selectionKind, disabled = false, tone = 'default', onSelect }: { label: string; selected?: boolean; checked?: boolean; selectionKind?: 'radio' | 'checkbox'; disabled?: boolean; tone?: 'default' | 'danger'; onSelect(): void }): ReactElement {
+  const color = tone === 'danger' ? 'var(--dsw-alias-danger,var(--dsw-alias-label-primary,#e2e8f0))' : 'inherit'
+  return createElement('button', { type: 'button', ...(selectionKind === undefined ? {} : { 'aria-pressed': checked === true }), disabled, onClick: onSelect, style: { width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', border: '1px solid transparent', borderRadius: '9px', background: selected ? 'color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 15%, transparent)' : 'transparent', color, padding: '7px 8px', textAlign: 'left', cursor: disabled ? 'not-allowed' : 'pointer', font: 'inherit' }, 'data-mm-action': 'true' },
+    createElement('span', null, label),
+    selected || checked === true ? createElement('span', { 'aria-hidden': true, style: { color: 'var(--dsw-alias-brand-primary,#14b8a6)', fontWeight: '700' } }, '✓') : null,
+  )
+}
+
+function MenuDivider(): ReactElement { return createElement('div', { role: 'separator', style: { height: '1px', margin: '5px 3px', background: 'color-mix(in srgb, var(--dsw-alias-border-l1,#334155) 84%, transparent)' } }) }
+
+function ScopePicker({ scope, showArchived, onScopeChange, onArchiveToggle }: { scope: MindmapScope; showArchived: boolean; onScopeChange(scope: MindmapScope): void; onArchiveToggle(): void }): ReactElement {
+  const title = scope === 'session' ? '本会话' : '整个工作区'
+  const nextTitle = scope === 'session' ? '整个工作区' : '本会话'
+  return createElement('div', { role: 'group', 'aria-label': '脑图范围', style: { display: 'flex', alignItems: 'center', gap: '5px' } },
+    createElement('button', { type: 'button', onClick: () => onScopeChange(scope === 'session' ? 'workspace' : 'session'), title: `切换到${nextTitle}`, 'aria-label': `切换脑图范围，当前${title}${showArchived ? '，已归档' : '，活动'}`, style: { ...compactButtonStyle(true), flex: '0 0 150px', width: '150px', justifyContent: 'space-between' }, 'data-mm-action': 'true' }, [createElement('span', { key: 'label', style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontWeight: '500' } }, '范围'), createElement('strong', { key: 'value', style: { fontWeight: '650' } }, title), createElement('span', { key: 'swap', 'aria-hidden': true, style: { opacity: .66, fontSize: '12px' } }, '⇄')]),
+    createElement('button', { type: 'button', onClick: onArchiveToggle, title: showArchived ? '查看活动脑图' : '查看已归档脑图', 'aria-label': showArchived ? '查看活动脑图' : '查看已归档脑图', 'aria-pressed': showArchived, style: { ...compactButtonStyle(showArchived), minWidth: '32px', padding: '6px' }, 'data-mm-action': 'true' }, '◷'),
+  )
+}
+
+type MorePanelProps = {
+  onClose(): void
+  mapActions: MapActions | null
+  record: MindmapRecord
+  onRestore(): void
+  onArchive(): void
+  onDelete(): void
+}
+
+function MorePanel({ onClose, mapActions, record, onRestore, onArchive, onDelete }: MorePanelProps): ReactElement {
+  const choose = (action: () => void) => () => { action(); onClose() }
+  return createElement('aside', { 'data-mm-glass': 'true', 'aria-label': '更多脑图操作', style: { ...glassSurfaceStyle('strong'), minWidth: 0, height: '100%', overflow: 'auto', boxSizing: 'border-box', padding: '12px', display: 'grid', alignContent: 'start', gap: '3px' } },
+    createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '5px' } }, createElement('div', null, createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px' } }, '工作台'), createElement('strong', { style: { display: 'block', marginTop: '1px' } }, '更多操作')), createElement('button', { type: 'button', onClick: onClose, style: { ...compactButtonStyle(), marginLeft: 'auto', minWidth: '32px', padding: '6px' }, 'aria-label': '收起更多脑图操作', title: '收起更多脑图操作', 'data-mm-action': 'true' }, '×')),
+    createElement(PopoverSectionLabel, null, '画布'),
+    createElement(PopoverAction, { label: '全部展开', disabled: !mapActions, onSelect: choose(() => void mapActions?.expandAll()) }),
+    createElement(PopoverAction, { label: '全部折叠', disabled: !mapActions, onSelect: choose(() => void mapActions?.collapseAll()) }),
+    createElement(PopoverAction, { label: '折叠至第 2 层', disabled: !mapActions, onSelect: choose(() => void mapActions?.collapseToLevel(2)) }),
+    createElement(PopoverAction, { label: '预览 SVG', disabled: !mapActions, onSelect: choose(() => void mapActions?.openSvgPreview()) }),
+    createElement(MenuDivider),
+    createElement(PopoverSectionLabel, null, '导出'),
+    createElement(PopoverAction, { label: '导出 JSON', onSelect: choose(() => downloadBlob(new Blob([JSON.stringify(record.current, null, 2)], { type: 'application/json' }), safeFilename(record.title, 'json'))) }),
+    createElement(PopoverAction, { label: '导出 Markdown', onSelect: choose(() => downloadBlob(new Blob([markdown(record.current.root)], { type: 'text/markdown' }), safeFilename(record.title, 'md'))) }),
+    createElement(PopoverAction, { label: '导出 XMind', disabled: !mapActions, onSelect: choose(() => void mapActions?.exportXmind()) }),
+    createElement(PopoverAction, { label: '导出 PNG', disabled: !mapActions, onSelect: choose(() => void mapActions?.exportPng()) }),
+    createElement(MenuDivider),
+    createElement(PopoverSectionLabel, null, '整理'),
+    ...(record.previous ? [createElement(PopoverAction, { key: 'restore', label: '恢复重新生成前版本', onSelect: choose(onRestore) })] : []),
+    createElement(PopoverAction, { label: '归档', onSelect: choose(onArchive) }),
+    createElement(PopoverAction, { label: '删除脑图', tone: 'danger', onSelect: choose(onDelete) }),
+  )
+}
+
+type NodeInspectorProps = {
+  record: MindmapRecord
+  nodeDraft: SelectedNode | null
+  onDraftChange(next: SelectedNode): void
+  onSave(): void
+  onClose(): void
+  onVisualConfig(config: Partial<MindmapConfig>): void
+}
+
+function NodeInspector({ record, nodeDraft, onDraftChange, onSave, onClose, onVisualConfig }: NodeInspectorProps): ReactElement {
+  return createElement('aside', { 'data-mm-glass': 'true', 'aria-label': '节点属性和脑图样式', style: { ...glassSurfaceStyle('strong'), minWidth: 0, height: '100%', overflow: 'auto', boxSizing: 'border-box', padding: '16px', display: 'grid', alignContent: 'start', gap: '14px' } },
+    createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+      createElement('div', { style: { minWidth: 0 } }, createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px' } }, '编辑器'), createElement('strong', { style: { display: 'block', marginTop: '1px' } }, '节点属性')),
+      createElement('button', { type: 'button', onClick: onClose, style: { ...compactButtonStyle(), marginLeft: 'auto', minWidth: '32px', padding: '6px' }, 'aria-label': '收起节点属性', title: '收起节点属性', 'data-mm-action': 'true' }, '×'),
+    ),
+    nodeDraft ? createElement('div', { style: { display: 'grid', gap: '11px' } },
+      createElement('label', { style: { display: 'grid', gap: '5px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, '标题'), createElement('input', { value: nodeDraft.title, onChange: (event: ChangeEvent<HTMLInputElement>) => onDraftChange({ ...nodeDraft, title: event.target.value }), style: inputStyle(), 'aria-label': '节点标题' })),
+      createElement('label', { style: { display: 'grid', gap: '5px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, `备注（${nodeDraft.note.length} 字）`), createElement('textarea', { rows: 8, value: nodeDraft.note, onChange: (event: ChangeEvent<HTMLTextAreaElement>) => onDraftChange({ ...nodeDraft, note: event.target.value }), placeholder: '添加节点备注', style: { ...inputStyle(), resize: 'vertical' }, 'aria-label': '节点备注' })),
+      createElement('div', { style: { display: 'flex', gap: '7px' } }, createElement('button', { type: 'button', onClick: onSave, style: { ...compactButtonStyle(true), flex: '1 1 0', background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#0f172a)' }, 'data-mm-action': 'true' }, '保存节点'), createElement('button', { type: 'button', onClick: onClose, style: compactButtonStyle(), 'data-mm-action': 'true' }, '取消')),
+    ) : createElement('p', { style: { margin: 0, color: 'var(--dsw-alias-label-secondary,#94a3b8)', lineHeight: '1.6' } }, '选择一个节点，即可编辑标题和备注。'),
+    createElement('details', { open: !nodeDraft, style: { paddingTop: '13px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#334155) 84%, transparent)' } },
+      createElement('summary', { style: { cursor: 'pointer', fontWeight: '650', listStyle: 'none' } }, '脑图样式'),
+      createElement('div', { style: { display: 'grid', gap: '10px', marginTop: '12px' } },
+        createElement('label', { style: { display: 'grid', gap: '5px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, '结构'), createElement('select', { value: record.config.layout, onChange: (event: ChangeEvent<HTMLSelectElement>) => onVisualConfig({ layout: event.target.value }), style: inputStyle(), 'aria-label': '脑图结构' }, LAYOUT_OPTIONS.map(([value, label]) => createElement('option', { key: value, value }, label)))),
+        createElement('label', { style: { display: 'grid', gap: '5px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, '主题'), createElement('select', { value: record.config.theme, onChange: (event: ChangeEvent<HTMLSelectElement>) => onVisualConfig({ theme: event.target.value }), style: inputStyle(), 'aria-label': '脑图主题' }, Object.entries(THEME_PRESETS).map(([value, preset]) => createElement('option', { key: value, value }, preset.label)))),
+      ),
+    ),
+  )
+}
+
+const MINDMAP_CHROME_CSS = [
+  '[data-chat-mindmap-root] [data-mm-action]:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px)}',
+  '[data-chat-mindmap-root] [data-mm-action]:active:not(:disabled){transform:translateY(0)}',
+  '[data-chat-mindmap-root] button:focus-visible,[data-chat-mindmap-root] input:focus-visible,[data-chat-mindmap-root] textarea:focus-visible,[data-chat-mindmap-root] select:focus-visible{outline:2px solid color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 75%, transparent);outline-offset:2px}',
+  '[data-chat-mindmap-root] [data-mm-sidebar-item]:hover{background:color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 10%, transparent)}',
+  '@media (prefers-reduced-transparency: reduce){[data-chat-mindmap-root] [data-mm-glass]{background:var(--dsw-alias-bg-layer-1,#171e2e)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}}',
+  '@media (prefers-reduced-motion: reduce){[data-chat-mindmap-root] *{transition:none!important}}',
+].join('\n')
+
 function BrainmapView(props: ConvViewProps & { sessions: SessionService }): ReactElement {
   const sessionId = props.sessionId
   const [maps, setMaps] = useState<MindmapSummary[]>([])
@@ -358,7 +467,8 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   const [status, setStatus] = useState('正在打开脑图库…')
   const [showCreate, setShowCreate] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
-  const [scope, setScope] = useState<'session' | 'workspace'>('session')
+  const [scope, setScope] = useState<MindmapScope>('session')
+  const [activePopover, setActivePopover] = useState<ActivePopover>(null)
   const [regenOpen, setRegenOpen] = useState(false)
   const [regenDraft, setRegenDraft] = useState('')
   const [manualText, setManualText] = useState('')
@@ -397,7 +507,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     let active = true
     setGalleryState('loading')
     setStatus('正在读取脑图库…')
-    const key = scope + ':' + (showArchived ? 'archived' : 'active')
+    const key = scope + ':' + (showArchived ? 'archived' : 'active') + ':' + (sessionId ?? '')
     const request = !force && galleryRequestRef.current?.key === key
       ? galleryRequestRef.current.promise
       : api<MindmapSummary[]>(listQueryOf(scope, sessionId, showArchived))
@@ -405,7 +515,8 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     void request.then((next) => {
       if (!active) return
       setMaps(next)
-      setSelectedId((prev) => prev && next.some((item) => item.libraryId === prev) ? prev : next[0]?.libraryId)
+      const targetId = consumeMindmapTarget(String(sessionId))
+      setSelectedId((prev) => targetId && next.some((item) => item.libraryId === targetId) ? targetId : prev && next.some((item) => item.libraryId === prev) ? prev : next[0]?.libraryId)
       setGalleryState('ready')
       setStatus(`${next.length} 张${showArchived ? '已归档' : '活动'}脑图（${scope === 'workspace' ? '全部工作区' : '本会话'}）`)
     }).catch((error) => {
@@ -415,16 +526,22 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
       setStatus(`图库加载失败：${error instanceof Error ? error.message : String(error)}`)
     })
     return () => { active = false }
-  }, [scope, showArchived])
+  }, [scope, showArchived, sessionId])
   useEffect(() => refresh(), [refresh])
-  useEffect(() => { if (!selectedId) { setRecord(null); setInstruction(''); return }; void api<MindmapRecord>(`/maps/${encodeURIComponent(selectedId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((next) => { setRecord(next); setInstruction(next.config.instruction ?? '') }).catch((error) => setStatus(String(error))) }, [selectedId])
+  useEffect(() => {
+    let active = true
+    if (!selectedId) { setRecord(null); setInstruction(''); return () => { active = false } }
+    setRecord(null)
+    void api<MindmapRecord>(`/maps/${encodeURIComponent(selectedId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((next) => { if (active) { setRecord(next); setInstruction(next.config.instruction ?? '') } }).catch((error) => { if (active) setStatus(String(error)) })
+    return () => { active = false }
+  }, [selectedId, sessionId])
   useEffect(() => {
     if (!panelRun || panelRun.status !== 'running') return
     let active = true
-    const poll = () => void api<PanelRunView>(`/panel-runs/${encodeURIComponent(panelRun.runId)}`).then((next) => {
+    const poll = () => void api<PanelRunView>(`/panel-runs/${encodeURIComponent(panelRun.runId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((next) => {
       if (!active) return
       setPanelRun(next); setStatus(next.detail)
-      if (next.status === 'completed') { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}`).then((updated) => { if (active) { setRecord(updated); void refresh(true) } }) }
+      if (next.status === 'completed') { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active) { setRecord(updated); void refresh(true) } }) }
     }).catch((error) => { if (active) setStatus(`重新生成状态读取失败：${String(error)}`) })
     poll()
     const timer = window.setInterval(poll, 1_000)
@@ -438,7 +555,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     autosaveAbort.current?.abort()
     const controller = new AbortController()
     autosaveAbort.current = controller
-    void api<MindmapRecord>(`/maps/${encodeURIComponent(current.libraryId)}`, { method: 'PATCH', signal: controller.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ document, rotatePrevious: false, expectedRecordVersion: current.recordVersion }) }).then((next) => {
+    void api<MindmapRecord>(`/maps/${encodeURIComponent(current.libraryId)}`, { method: 'PATCH', signal: controller.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, document, rotatePrevious: false, expectedRecordVersion: current.recordVersion }) }).then((next) => {
       if (!shouldApplyAutosave(seq, autosaveSeq.current, controller.signal.aborted)) return
       setRecord((prev) => prev ? { ...prev, updatedAt: next.updatedAt, current: next.current, previous: next.previous, recordVersion: next.recordVersion } : next)
       setStatus('已自动保存当前手动修改')
@@ -446,7 +563,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
       if (controller.signal.aborted || !shouldApplyAutosave(seq, autosaveSeq.current, false)) return
       if (error instanceof ApiError && error.code === 'MINDMAP_CONFLICT') {
         setStatus('检测到版本冲突：本次修改未写入，已刷新最新内容')
-        void api<MindmapRecord>(`/maps/${encodeURIComponent(current.libraryId)}`).then((latest) => setRecord(latest)).catch(() => undefined)
+        void api<MindmapRecord>(`/maps/${encodeURIComponent(current.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((latest) => setRecord(latest)).catch(() => undefined)
         return
       }
       setStatus(error instanceof Error ? error.message : String(error))
@@ -506,7 +623,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
   }
   const cancelRegenerate = () => {
     if (!panelRun || panelRun.status !== 'running') return
-    void api<{ runId: string; status: string }>(`/panel-runs/${encodeURIComponent(panelRun.runId)}`, { method: 'DELETE' })
+    void api<{ runId: string; status: string }>(`/panel-runs/${encodeURIComponent(panelRun.runId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`, { method: 'DELETE' })
       .then(() => setStatus('正在取消 fork 子代理…'))
       .catch((error) => setStatus(`取消失败：${String(error)}`))
   }
@@ -515,18 +632,18 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     const before = record
     setRecord({ ...record, config: { ...record.config, ...config } })
     setStatus('正在应用外观配置…')
-    void api<MindmapRecord>(`/maps/${encodeURIComponent(record.libraryId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config, expectedRecordVersion: record.recordVersion }) })
+    void api<MindmapRecord>(`/maps/${encodeURIComponent(record.libraryId)}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, config, expectedRecordVersion: record.recordVersion }) })
       .then((next) => { setRecord(next); setStatus('外观已立即应用并保存') })
       .catch((error) => {
         setRecord(before)
-        if (error instanceof ApiError && error.code === 'MINDMAP_CONFLICT') { void api<MindmapRecord>('/maps/' + encodeURIComponent(record.libraryId)).then((latest) => setRecord(latest)).catch(() => undefined); setStatus('外观保存遇到版本冲突，已刷新'); return }
+        if (error instanceof ApiError && error.code === 'MINDMAP_CONFLICT') { void api<MindmapRecord>('/maps/' + encodeURIComponent(record.libraryId) + '?sessionId=' + encodeURIComponent(sessionId ?? '')).then((latest) => setRecord(latest)).catch(() => undefined); setStatus('外观保存遇到版本冲突，已刷新'); return }
         setStatus('外观保存失败：' + (error instanceof Error ? error.message : String(error)))
       })
   }
   const selectNode = (node: SelectedNode | null) => {
     setSelectedNode(node)
     setNodeDraft(node)
-    if (node) setInspectorOpen(true)
+    if (node) { setActivePopover(null); setInspectorOpen(true) }
   }
   const saveNode = () => {
     if (!selectedNode || !nodeDraft || !mapActions) return
@@ -541,18 +658,132 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService }): Reac
     setNodeDraft(selectedNode)
     setInspectorOpen(false)
   }
-  return createElement('main', { style: panelStyle() },
-    createElement('header', { style: { height: '48px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '7px', padding: '0 14px', borderBottom: '1px solid var(--dsw-alias-border-l1,#2c3445)', background: 'var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#111827))' } }, createElement('button', { type: 'button', onClick: () => setSidebarOpen((open) => !open), style: buttonStyle(), 'aria-label': sidebarOpen ? '收起脑图库' : '展开脑图库', title: sidebarOpen ? '收起脑图库' : '展开脑图库' }, sidebarOpen ? '‹' : '☰'), createElement('button', { type: 'button', onClick: () => setScope('session'), style: { ...buttonStyle(), borderColor: scope === 'session' ? 'var(--dsw-alias-brand-primary,#14b8a6)' : undefined }, 'aria-pressed': scope === 'session', title: '只显示当前会话的脑图' }, '本会话'), createElement('button', { type: 'button', onClick: () => setScope('workspace'), style: { ...buttonStyle(), borderColor: scope === 'workspace' ? 'var(--dsw-alias-brand-primary,#14b8a6)' : undefined }, 'aria-pressed': scope === 'workspace', title: '显示当前工作区的全部脑图' }, '全部'), narrowLayout && maps.length > 0 ? createElement('select', { value: selectedId ?? '', onChange: (event: ChangeEvent<HTMLSelectElement>) => setSelectedId(event.target.value), style: { ...inputStyle(), width: 'auto', maxWidth: '38%' }, 'aria-label': '选择脑图' }, maps.map((item) => createElement('option', { key: item.libraryId, value: item.libraryId }, item.title))) : null, createElement('strong', { style: { marginRight: 'auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, record?.title ?? '脑图'), galleryState === 'loading' ? createElement('small', { role: 'status', style: { color: 'var(--dsw-alias-label-secondary,#6b7280)' } }, '读取图库…') : null, galleryState === 'failed' ? createElement('button', { type: 'button', onClick: () => void refresh(true), style: buttonStyle() }, '重试') : null, createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.undo(), style: buttonStyle(), title: '撤销 Ctrl+Z', 'aria-label': '撤销 Ctrl+Z' }, '↶'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.redo(), style: buttonStyle(), title: '重做 Ctrl+Shift+Z', 'aria-label': '重做 Ctrl+Shift+Z' }, '↷'), createElement('button', { type: 'button', onClick: () => setInspectorOpen((open) => !open), style: buttonStyle(), title: '节点属性', 'aria-label': '打开节点属性' }, '☷'), createElement(DswButton, { variant: 'primary', disabled: regenerateUnavailableWhileRunning(panelRun) || !record, onClick: () => { setRegenDraft(instruction); setRegenOpen(true) }, title: '重新生成（fork 子代理）', 'aria-label': '重新生成脑图', 'data-toolbar-regenerate': 'true' }, '\u2726 重新生成'), createElement('details', { style: { position: 'relative' } }, createElement('summary', { style: { ...buttonStyle(), listStyle: 'none', userSelect: 'none' }, 'aria-label': '更多操作' }, '···'), createElement('div', { style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 5, display: 'grid', gap: '5px', minWidth: '142px', padding: '7px', border: '1px solid var(--dsw-alias-border-l2,#e8eaed)', borderRadius: '4px', background: 'var(--dsw-alias-bg-base,#fff)', boxShadow: '0 10px 24px var(--dsw-shadow-lv3,rgba(0,0,0,.14))' } }, createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.expandAll(), style: buttonStyle() }, '全部展开'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.collapseAll(), style: buttonStyle() }, '全部折叠'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.collapseToLevel(2), style: buttonStyle() }, '折叠至第 2 层'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.openSvgPreview(), style: buttonStyle() }, '预览 SVG'), createElement('hr', { style: { width: '100%', border: 0, borderTop: '1px solid var(--dsw-alias-border-l1,#2c3445)' } }), createElement('button', { type: 'button', onClick: () => downloadBlob(new Blob([JSON.stringify(record?.current, null, 2)], { type: 'application/json' }), safeFilename(record?.title ?? 'mindmap', 'json')), style: buttonStyle() }, '导出 JSON'), createElement('button', { type: 'button', onClick: () => record && downloadBlob(new Blob([markdown(record.current.root)], { type: 'text/markdown' }), safeFilename(record.title, 'md')), style: buttonStyle() }, '导出 Markdown'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.exportXmind(), style: buttonStyle() }, '导出 XMind'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.exportPng(), style: buttonStyle() }, '导出 PNG'), createElement('hr', { style: { width: '100%', border: 0, borderTop: '1px solid var(--dsw-alias-border-l1,#2c3445)' } }), ...(record?.previous ? [createElement('button', { key: 'restore', type: 'button', onClick: restorePrevious, style: buttonStyle() }, '恢复重新生成前版本')] : []), createElement('button', { key: 'archive', type: 'button', onClick: archiveCurrent, style: buttonStyle() }, '归档'), createElement('button', { key: 'delete', type: 'button', onClick: deleteCurrent, style: buttonStyle() }, '删除'))), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.toggleFullscreen(), style: buttonStyle(), title: '全屏画布', 'aria-label': '全屏画布' }, '⛶')),
-    showCreate && createElement('section', { style: { padding: '8px', marginBottom: '8px', border: '1px solid var(--dsw-alias-border-l1,#334155)', borderRadius: '8px' } }, createElement('textarea', { rows: 5, value: manualText, placeholder: '粘贴文本或 Markdown（也可以让 Agent 从 PDF/附件生成）', onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setManualText(event.target.value), style: { ...inputStyle(), resize: 'vertical' } }), createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' } }, '最多节点', createElement('select', { value: draftMaxNodes, onChange: (event: ChangeEvent<HTMLSelectElement>) => setDraftMaxNodes(Number(event.target.value)), style: { ...inputStyle(), width: 'auto' }, 'aria-label': '新脑图最多节点' }, [120, 240, 360, 600, 1_000].map((count) => createElement('option', { key: count, value: count }, `${count}`)))), createElement('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } }, createElement('button', { type: 'button', disabled: createPhase !== 'idle', onClick: createMap, style: buttonStyle() }, createPhase === 'generating' ? '生成草稿中…' : createPhase === 'saving' ? '保存中…' : '生成并保存'), createPhase === 'generating' ? createElement('button', { type: 'button', onClick: () => { createControllerRef.current?.abort(); setStatus('正在取消未保存草稿…') }, style: buttonStyle() }, '取消') : createElement('button', { type: 'button', disabled: createPhase === 'saving', onClick: () => { setShowCreate(false); setManualText(''); setInstruction(''); setStatus(createPhase === 'saving' ? '脑图正在保存；保存完成后会显示在图库中' : '已取消创建，未保存任何内容') }, style: buttonStyle() }, createPhase === 'saving' ? '保存中' : '取消'))),
-    createElement('div', { ref: workspaceRef, style: { display: 'grid', gridTemplateColumns: sidebarOpen ? (workspaceWidth > 0 && workspaceWidth < 900 ? '56px minmax(0,1fr)' : '228px minmax(0,1fr)') : '0px minmax(0,1fr)', position: 'relative', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#23262d))' } },
-      createElement('aside', { style: { overflow: sidebarOpen ? 'auto' : 'hidden', padding: workspaceWidth > 0 && workspaceWidth < 900 ? '8px 4px' : '12px 9px', borderRight: '1px solid var(--dsw-alias-border-l1,#2c3445)', background: 'var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#171e2e))' } }, createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' } }, createElement('strong', null, '脑图库'), createElement('button', { type: 'button', onClick: () => setShowCreate((value) => !value), style: { ...buttonStyle(), marginLeft: 'auto' }, 'aria-label': '新建脑图' }, '＋')), createElement('input', { value: search, placeholder: '搜索脑图', onChange: (event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value), style: { ...inputStyle(), marginBottom: '10px' }, 'aria-label': '搜索脑图' }), maps.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map((item) => createElement('button', { key: item.libraryId, type: 'button', onClick: () => setSelectedId(item.libraryId), title: item.title, style: { display: 'block', width: '100%', textAlign: 'left', padding: '6px 7px', marginBottom: '1px', border: 0, borderLeft: selectedId === item.libraryId ? '3px solid var(--dsw-alias-brand-primary,#14b8a6)' : '3px solid transparent', borderRadius: 0, background: selectedId === item.libraryId ? 'var(--dsw-alias-interactive-bg-hover,rgba(20,184,166,.10))' : 'transparent', color: 'inherit', cursor: 'pointer' } }, createElement('strong', { style: { display: 'block', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.title), createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, `${item.nodeCount} nodes · ${item.source?.kind?.toUpperCase() ?? 'MAP'}`))), createElement('button', { type: 'button', onClick: () => setShowArchived((value) => !value), style: { ...buttonStyle(), marginTop: '10px' } }, showArchived ? '查看活动脑图' : '查看归档脑图')),
-       record ? createElement('section', { style: { minWidth: 0, minHeight: 0, flex: '1 1 0', display: 'flex', flexDirection: 'column', gap: 0 } },
-        panelRun?.libraryId === record.libraryId ? createElement('div', { role: 'status', style: { /* @token-exempt-line TODO(W3): status tint palette awaits official feedback tokens */ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 9px', borderRadius: '7px', background: panelRun.status === 'failed' ? 'rgba(127,29,29,.38)' : panelRun.status === 'completed' ? 'rgba(6,78,59,.38)' : 'rgba(30,41,59,.72)', border: '1px solid #475569' } }, createElement('strong', null, panelRun.status === 'running' ? [createElement(DswStateDot, { key: 'dot', tone: 'running', label: '运行中' }), ' Fork 子代理运行中'] : panelRun.status === 'completed' ? [createElement(DswStateDot, { key: 'dot', tone: 'ok', label: '完成' }), ' 重新生成完成'] : panelRun.status === 'cancelled' ? '重新生成已取消' : '重新生成失败'), createElement('span', { style: { opacity: .78 } }, panelRun.detail, panelRun.noteLength ? ` · 已传入 ${panelRun.noteLength} 字备注` : null), panelRun.childId ? createElement('code', { style: { opacity: .62, fontSize: '11px' } }, `子代理 ${panelRun.childId}`) : null, panelRun.status === 'running' ? createElement('button', { type: 'button', onClick: cancelRegenerate, style: { ...buttonStyle(), marginLeft: 'auto' } }, '取消') : null) : null,
-      createElement('div', { style: { display: 'flex', flexDirection: 'column', position: 'relative', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' } }, createElement(MapCanvas, { key: mountKeyOf(record), record, onDocumentChange: persistDocument, onActions: setMapActions, onFullscreenChange: () => undefined, onNodeSelect: selectNode }), createElement('div', { style: { position: 'absolute', right: '16px', bottom: '16px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', padding: '3px 5px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 78%, transparent)', borderRadius: '999px', background: 'color-mix(in srgb, var(--dsw-alias-bg-layer-1,#171e2e) 86%, transparent)', boxShadow: 'var(--dsw-shadow-lv3,0 4px 14px rgba(0,0,0,.12))', backdropFilter: 'blur(8px)' } }, createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomOut(), style: zoomButtonStyle(), 'aria-label': '缩小画布' }, '−'), createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomIn(), style: zoomButtonStyle(), 'aria-label': '放大画布' }, '＋'))))
-        : createElement(EmptyState, { kind: galleryState === 'failed' ? 'capability' : scope === 'workspace' ? 'workspace' : 'session', localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined) })),
-    inspectorOpen ? createElement('aside', { style: { position: 'absolute', top: '16px', right: '16px', bottom: '16px', zIndex: 4, width: 'min(300px, calc(100% - 276px))', overflow: 'auto', boxSizing: 'border-box', padding: '16px', border: '1px solid var(--dsw-alias-border-l1,#2c3445)', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#171e2e))', boxShadow: 'var(--dsw-shadow-lv3,0 12px 32px rgba(0,0,0,.30))' } }, createElement('div', { style: { display: 'flex', alignItems: 'center', marginBottom: '16px' } }, createElement('strong', null, '节点属性'), createElement('button', { type: 'button', onClick: cancelNodeDraft, style: { ...buttonStyle(), marginLeft: 'auto' }, 'aria-label': '收起节点属性' }, '×')), nodeDraft ? createElement('div', { style: { display: 'grid', gap: '12px' } }, createElement('label', { style: { display: 'grid', gap: '5px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#6b7280)' } }, '标题'), createElement('input', { value: nodeDraft.title, onChange: (event: ChangeEvent<HTMLInputElement>) => setNodeDraft({ ...nodeDraft, title: event.target.value }), style: inputStyle(), 'aria-label': '节点标题' })), createElement('label', { style: { display: 'grid', gap: '5px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#6b7280)' } }, `备注 · ${nodeDraft.note.length} 字`), createElement('textarea', { rows: 8, value: nodeDraft.note, onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setNodeDraft({ ...nodeDraft, note: event.target.value }), placeholder: '添加节点备注', style: { ...inputStyle(), resize: 'vertical' }, 'aria-label': '节点备注' })), createElement('div', { style: { display: 'flex', gap: '6px' } }, createElement('button', { type: 'button', onClick: saveNode, style: { /* @token-exempt-line TODO(W3): on-brand text pair awaits official tokens */ ...buttonStyle(), background: '#14b8a6', color: '#fff', borderColor: '#14b8a6' } }, '保存'), createElement('button', { type: 'button', onClick: cancelNodeDraft, style: buttonStyle() }, '取消'))) : createElement('div', { style: { display: 'grid', gap: '12px' } }, createElement('p', { style: { color: 'var(--dsw-alias-label-secondary,#6b7280)', margin: 0 } }, '选择一个节点以编辑标题和备注。'), record ? createElement('section', { style: { display: 'grid', gap: '9px', paddingTop: '10px', borderTop: '1px solid #e8eaed' } }, createElement('strong', null, '脑图样式'), createElement('label', { style: { display: 'grid', gap: '4px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#6b7280)' } }, '结构'), createElement('select', { value: record.config.layout, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ layout: event.target.value }), style: inputStyle(), 'aria-label': '脑图结构' }, LAYOUT_OPTIONS.map(([value, label]) => createElement('option', { key: value, value }, label)))), createElement('label', { style: { display: 'grid', gap: '4px' } }, createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#6b7280)' } }, '主题'), createElement('select', { value: record.config.theme, onChange: (event: ChangeEvent<HTMLSelectElement>) => visualConfig({ theme: event.target.value }), style: inputStyle(), 'aria-label': '脑图主题' }, Object.entries(THEME_PRESETS).map(([value, preset]) => createElement('option', { key: value, value }, preset.label)))) ) : null)) : null,
+  const selectedSummary = maps.find((item) => item.libraryId === selectedId)
+  const filteredMaps = maps.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const scopeLabel = scope === 'workspace' ? '整个工作区' : '本会话'
+  const currentTitle = record?.title ?? selectedSummary?.title ?? '脑图工作台'
+  const currentMeta = record
+    ? `${selectedSummary?.nodeCount ?? '…'} 个节点${record.archived ? '，已归档' : ''}`
+    : galleryState === 'loading' ? '正在读取图库' : `${maps.length} 张脑图`
+  const sidebarCompact = narrowLayout && !showCreate
+  const sidebarColumn = sidebarOpen ? (sidebarCompact ? '64px' : 'minmax(216px,248px)') : ''
+  const inspectorVisible = inspectorOpen && record !== null
+  const moreVisible = activePopover === 'more' && record !== null
+  const utilityVisible = inspectorVisible || moreVisible
+  const utilityColumn = inspectorVisible
+    ? narrowLayout ? 'minmax(240px,34vw)' : 'minmax(280px,320px)'
+    : narrowLayout ? 'minmax(208px,28vw)' : 'minmax(216px,236px)'
+  const workspaceColumns = sidebarOpen
+    ? utilityVisible ? `${sidebarColumn} minmax(0,1fr) ${utilityColumn}` : `${sidebarColumn} minmax(0,1fr)`
+    : utilityVisible ? `minmax(0,1fr) ${utilityColumn}` : 'minmax(0,1fr)'
+  const chooseScope = (nextScope: MindmapScope) => {
+    if (nextScope === scope) return
+    setSelectedId(undefined)
+    setSearch('')
+    setSelectedNode(null)
+    setNodeDraft(null)
+    setInspectorOpen(false)
+    setActivePopover(null)
+    setScope(nextScope)
+    setStatus(nextScope === 'workspace' ? '正在显示整个工作区的脑图' : '正在显示本会话的脑图')
+  }
+  const toggleArchived = () => {
+    const next = !showArchived
+    setSelectedId(undefined)
+    setInspectorOpen(false)
+    setActivePopover(null)
+    setShowArchived(next)
+    setStatus(next ? '正在查看已归档脑图' : '正在查看活动脑图')
+  }
+  const toggleMorePopover = () => {
+    setInspectorOpen(false)
+    setActivePopover(activePopover === 'more' ? null : 'more')
+  }
+  const toggleInspector = () => {
+    setActivePopover(null)
+    setInspectorOpen((open) => !open)
+  }
+  const selectMap = (libraryId: string) => {
+    setActivePopover(null)
+    setInspectorOpen(false)
+    setSelectedId(libraryId)
+  }
+
+  return createElement('main', { 'data-chat-mindmap-root': 'true', style: panelStyle() },
+    createElement('style', null, MINDMAP_CHROME_CSS),
+    createElement('header', { 'data-mm-glass': 'true', style: { ...glassSurfaceStyle('quiet'), height: '60px', minHeight: '60px', boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', alignItems: 'center', gap: '14px', padding: '0 16px', borderTop: 0, borderRight: 0, borderLeft: 0, borderRadius: 0, borderBottom: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#2c3445) 80%, transparent)', boxShadow: 'inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-label-primary,#e2e8f0) 4%, transparent)' } },
+      createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 } },
+        createElement('button', { type: 'button', onClick: () => setSidebarOpen((open) => !open), style: { ...compactButtonStyle(), minWidth: '32px', padding: '6px' }, 'aria-label': sidebarOpen ? '收起脑图库' : '展开脑图库', title: sidebarOpen ? '收起脑图库' : '展开脑图库', 'data-mm-action': 'true' }, sidebarOpen ? '‹' : '☰'),
+        createElement(ScopePicker, { scope, showArchived, onScopeChange: chooseScope, onArchiveToggle: toggleArchived }),
+      ),
+      createElement('div', { style: { minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' } },
+        createElement('div', { style: { minWidth: 0, display: 'grid', gap: '1px' } },
+          createElement('small', { style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${scopeLabel} · ${currentMeta}`),
+          createElement('strong', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px', letterSpacing: '-.01em' } }, currentTitle),
+        ),
+        narrowLayout && maps.length > 0 ? createElement('select', { value: selectedId ?? '', onChange: (event: ChangeEvent<HTMLSelectElement>) => selectMap(event.target.value), style: { ...inputStyle(), width: 'auto', maxWidth: '42%', minWidth: 0, padding: '5px 7px' }, 'aria-label': '选择脑图' }, maps.map((item) => createElement('option', { key: item.libraryId, value: item.libraryId }, item.title))) : null,
+        galleryState === 'loading' ? createElement('small', { role: 'status', style: { color: 'var(--dsw-alias-label-secondary,#94a3b8)', whiteSpace: 'nowrap' } }, '更新中') : null,
+        galleryState === 'failed' ? createElement('button', { type: 'button', onClick: () => void refresh(true), style: compactButtonStyle(), 'data-mm-action': 'true' }, '重试') : null,
+      ),
+      createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '7px', minWidth: 0 } },
+        createElement('div', { role: 'group', 'aria-label': '画布历史操作', 'data-mm-glass': 'true', style: { ...glassSurfaceStyle(), borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '1px', padding: '2px' } },
+          createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.undo(), style: zoomButtonStyle(), title: '撤销 Ctrl+Z', 'aria-label': '撤销 Ctrl+Z', 'data-mm-action': 'true' }, '↶'),
+          createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.redo(), style: zoomButtonStyle(), title: '重做 Ctrl+Shift+Z', 'aria-label': '重做 Ctrl+Shift+Z', 'data-mm-action': 'true' }, '↷'),
+        ),
+        createElement('button', { type: 'button', disabled: !record, onClick: toggleInspector, style: compactButtonStyle(inspectorVisible), title: '节点属性和脑图样式', 'aria-label': '打开节点属性', 'aria-pressed': inspectorVisible, 'data-mm-action': 'true' }, '属性'),
+        createElement(DswButton, { variant: 'primary', disabled: regenerateUnavailableWhileRunning(panelRun) || !record, onClick: () => { setActivePopover(null); setRegenDraft(instruction); setRegenOpen(true) }, title: '重新生成（fork 子代理）', 'aria-label': '重新生成脑图', 'data-toolbar-regenerate': 'true', 'data-mm-action': 'true', style: { ...compactButtonStyle(true), background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#111827)' } }, '重新生成'),
+        createElement('button', { type: 'button', disabled: !record, onClick: toggleMorePopover, style: compactButtonStyle(moreVisible), 'aria-label': '更多脑图操作', 'aria-pressed': moreVisible, 'data-mm-action': 'true' }, '更多'),
+        createElement('button', { type: 'button', disabled: !mapActions, onClick: () => void mapActions?.toggleFullscreen(), style: { ...compactButtonStyle(), minWidth: '32px', padding: '6px' }, title: '全屏画布', 'aria-label': '全屏画布', 'data-mm-action': 'true' }, '⛶'),
+      ),
+    ),
+    createElement('div', { ref: workspaceRef, style: { display: 'grid', gridTemplateColumns: workspaceColumns, gap: '10px', boxSizing: 'border-box', padding: '10px 12px 12px', position: 'relative', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden' } },
+      sidebarOpen ? createElement('aside', { 'data-mm-glass': 'true', 'aria-label': '脑图库', style: { ...glassSurfaceStyle(), minWidth: 0, minHeight: 0, overflow: 'auto', boxSizing: 'border-box', padding: sidebarCompact ? '8px 6px' : '12px', display: 'grid', alignContent: 'start', gap: '10px' } },
+        createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 } },
+          sidebarCompact ? null : createElement('div', { style: { minWidth: 0, marginRight: 'auto' } }, createElement('strong', { style: { display: 'block', fontSize: '13px' } }, '脑图库'), createElement('small', { style: { display: 'block', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px', marginTop: '1px' } }, `${scopeLabel} ${showArchived ? '已归档' : '活动'}`)),
+          createElement('button', { type: 'button', onClick: () => { setActivePopover(null); setShowCreate((value) => !value) }, style: { ...compactButtonStyle(showCreate), ...(sidebarCompact ? { width: '100%' } : {}) }, title: showCreate ? '收起新建脑图' : '新建脑图', 'aria-label': showCreate ? '收起新建脑图' : '新建脑图', 'aria-pressed': showCreate, 'data-mm-action': 'true' }, sidebarCompact ? '＋' : showCreate ? '收起' : '新建'),
+        ),
+        showCreate ? createElement('section', { style: { ...glassSurfaceStyle('strong'), padding: '10px', display: 'grid', gap: '9px' }, 'aria-label': '新建脑图' },
+          createElement('div', null, createElement('strong', { style: { fontSize: '13px' } }, '从文本创建'), createElement('small', { style: { display: 'block', marginTop: '2px', color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, '粘贴文本或 Markdown，生成后会保存到当前范围。')),
+          createElement('textarea', { rows: 5, value: manualText, placeholder: '粘贴文本或 Markdown', onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setManualText(event.target.value), style: { ...inputStyle(), resize: 'vertical' }, 'aria-label': '新脑图文本' }),
+          createElement('label', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, createElement('small', null, '节点上限'), createElement('select', { value: draftMaxNodes, onChange: (event: ChangeEvent<HTMLSelectElement>) => setDraftMaxNodes(Number(event.target.value)), style: { ...inputStyle(), width: 'auto', padding: '5px 7px' }, 'aria-label': '新脑图最多节点' }, [120, 240, 360, 600, 1_000].map((count) => createElement('option', { key: count, value: count }, `${count}`)))),
+          createElement('div', { style: { display: 'flex', gap: '7px' } },
+            createElement('button', { type: 'button', disabled: createPhase !== 'idle', onClick: createMap, style: { ...compactButtonStyle(true), flex: '1 1 0', background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#111827)' }, 'data-mm-action': 'true' }, createPhase === 'generating' ? '生成草稿中' : createPhase === 'saving' ? '保存中' : '生成并保存'),
+            createPhase === 'generating'
+              ? createElement('button', { type: 'button', onClick: () => { createControllerRef.current?.abort(); setStatus('正在取消未保存草稿…') }, style: compactButtonStyle(), 'data-mm-action': 'true' }, '取消')
+              : createElement('button', { type: 'button', disabled: createPhase === 'saving', onClick: () => { setShowCreate(false); setManualText(''); setInstruction(''); setStatus(createPhase === 'saving' ? '脑图正在保存；保存完成后会显示在图库中' : '已取消创建，未保存任何内容') }, style: compactButtonStyle(), 'data-mm-action': 'true' }, '取消'),
+          ),
+        ) : null,
+        sidebarCompact ? null : createElement('input', { value: search, placeholder: '搜索脑图', onChange: (event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value), style: inputStyle(), 'aria-label': '搜索脑图' }),
+        createElement('div', { style: { display: 'grid', gap: sidebarCompact ? '5px' : '4px' } },
+          filteredMaps.map((item, index) => createElement('button', { key: item.libraryId, type: 'button', onClick: () => selectMap(item.libraryId), title: item.title, 'aria-label': `打开脑图：${item.title}`, 'aria-current': selectedId === item.libraryId ? 'page' : undefined, 'data-mm-sidebar-item': 'true', style: { display: 'block', minWidth: 0, width: '100%', textAlign: 'left', padding: sidebarCompact ? '9px 4px' : '8px 9px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#334155) 74%, transparent)', borderLeft: selectedId === item.libraryId ? '3px solid var(--dsw-alias-brand-primary,#14b8a6)' : '3px solid transparent', borderRadius: '10px', background: selectedId === item.libraryId ? 'color-mix(in srgb, var(--dsw-alias-brand-primary,#14b8a6) 13%, transparent)' : 'transparent', color: 'inherit', cursor: 'pointer', transition: 'background .18s ease, transform .18s ease' } },
+            sidebarCompact
+              ? createElement('span', { style: { display: 'block', textAlign: 'center', color: selectedId === item.libraryId ? 'var(--dsw-alias-brand-primary,#14b8a6)' : 'var(--dsw-alias-label-secondary,#94a3b8)', fontWeight: '700' } }, String(index + 1))
+              : [createElement('strong', { key: 'title', style: { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px' } }, item.title), createElement('small', { key: 'meta', style: { display: 'block', marginTop: '2px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px' } }, `${item.nodeCount} 个节点 · ${item.source?.kind?.toUpperCase() ?? 'MAP'}`)],
+          )),
+          galleryState === 'ready' && filteredMaps.length === 0 ? createElement('small', { style: { padding: sidebarCompact ? '8px 2px' : '12px 6px', textAlign: 'center', color: 'var(--dsw-alias-label-secondary,#94a3b8)', lineHeight: '1.5' } }, search.trim() ? '没有匹配的脑图' : '这里还没有脑图') : null,
+        ),
+      ) : null,
+      createElement('section', { 'data-mm-glass': 'true', 'aria-label': '脑图画布', style: { ...glassSurfaceStyle('strong'), display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } },
+        record && panelRun?.libraryId === record.libraryId ? createElement('div', { role: 'status', style: { display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 8px 0', padding: '8px 10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#475569) 72%, transparent)', borderRadius: '10px', background: panelRun.status === 'failed' ? 'color-mix(in srgb, var(--dsw-alias-danger,var(--dsw-alias-label-primary,#e2e8f0)) 14%, transparent)' : panelRun.status === 'completed' ? 'color-mix(in srgb, var(--dsw-alias-success,var(--dsw-alias-brand-primary,#14b8a6)) 14%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-bg-layer-2,#23262d) 74%, transparent)' } },
+          createElement('strong', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' } }, panelRun.status === 'running' ? [createElement(DswStateDot, { key: 'dot', tone: 'running', label: '运行中' }), '正在重新生成'] : panelRun.status === 'completed' ? [createElement(DswStateDot, { key: 'dot', tone: 'ok', label: '完成' }), '重新生成完成'] : panelRun.status === 'cancelled' ? '重新生成已取消' : '重新生成失败'),
+          createElement('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, panelRun.detail, panelRun.noteLength ? ` · 已传入 ${panelRun.noteLength} 字备注` : null),
+          panelRun.status === 'running' ? createElement('button', { type: 'button', onClick: cancelRegenerate, style: { ...compactButtonStyle(), marginLeft: 'auto' }, 'data-mm-action': 'true' }, '取消') : null,
+        ) : null,
+        record ? createElement('div', { style: { display: 'flex', flexDirection: 'column', position: 'relative', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden' } },
+          createElement(MapCanvas, { key: mountKeyOf(record), record, onDocumentChange: persistDocument, onActions: setMapActions, onFullscreenChange: () => undefined, onNodeSelect: selectNode }),
+          createElement('div', { 'data-mm-glass': 'true', style: { ...glassSurfaceStyle(), position: 'absolute', right: '16px', bottom: '16px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '1px', padding: '3px', borderRadius: '999px' } },
+            createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomOut(), style: zoomButtonStyle(), 'aria-label': '缩小画布', 'data-mm-action': 'true' }, '−'),
+            createElement('button', { type: 'button', disabled: !mapActions, onClick: () => mapActions?.zoomIn(), style: zoomButtonStyle(), 'aria-label': '放大画布', 'data-mm-action': 'true' }, '＋'),
+          ),
+        ) : createElement('div', { style: { display: 'grid', placeItems: 'center', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'auto' } }, createElement(EmptyState, { kind: galleryState === 'failed' ? 'capability' : scope === 'workspace' ? 'workspace' : 'session', localeId: resolveLocale(undefined, typeof navigator !== 'undefined' ? navigator.language : undefined) })),
+      ),
+      utilityVisible && record ? inspectorVisible
+        ? createElement(NodeInspector, { record, nodeDraft, onDraftChange: (next) => setNodeDraft(next), onSave: saveNode, onClose: cancelNodeDraft, onVisualConfig: visualConfig })
+        : createElement(MorePanel, { mapActions, record, onClose: () => setActivePopover(null), onRestore: restorePrevious, onArchive: archiveCurrent, onDelete: deleteCurrent })
+        : null,
+    ),
     regenOpen && record ? createElement(RegenerateModal, { record, panelRunning: regenerateUnavailableWhileRunning(panelRun), sessionAvailable: Boolean(props.sessions.binding(sessionId)?.session), draft: regenDraft, onDraftChange: setRegenDraft, onClose: () => setRegenOpen(false), onConfirm: () => regenerate(regenDraft) }) : null,
-    createElement('span', { role: 'status', style: { position: 'absolute', left: '244px', bottom: '8px', zIndex: 3, maxWidth: 'calc(100% - 280px)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '2px 6px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px', pointerEvents: 'none' } }, status),
+    createElement('span', { role: 'status', 'data-mm-glass': 'true', style: { ...glassSurfaceStyle(), position: 'absolute', left: sidebarOpen ? (sidebarCompact ? '84px' : '272px') : '20px', bottom: '18px', zIndex: 3, maxWidth: 'min(520px, calc(100% - 48px))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '5px 9px', color: 'var(--dsw-alias-label-secondary,#94a3b8)', fontSize: '11px', pointerEvents: 'none' } }, status),
   )
 }
 export { BrainmapView }

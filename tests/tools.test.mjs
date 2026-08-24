@@ -96,6 +96,7 @@ function makeDeps(overrides = {}) {
     saveCalls: [],
     timeoutMs: overrides.timeoutMs,
     logger: overrides.logger,
+    workspaceKeyOfAgent: overrides.workspaceKeyOfAgent ?? (() => 'ws-test'),
   }
   deps.save = overrides.save ?? (async (inputArg) => {
     deps.saveCalls.push(inputArg)
@@ -117,7 +118,7 @@ function makeDeps(overrides = {}) {
     }
   })
   for (const [key, value] of Object.entries(overrides)) {
-    if (['jobs', 'runtime', 'locks', 'loadRecord', 'save', 'timeoutMs', 'logger'].includes(key)) continue
+    if (['jobs', 'runtime', 'locks', 'loadRecord', 'save', 'timeoutMs', 'logger', 'workspaceKeyOfAgent'].includes(key)) continue
     deps[key] = value
   }
   return deps
@@ -209,7 +210,12 @@ assert.equal(saved.rotatePrevious, true)
 assert.equal('expectedRecordVersion' in saved, false, 'new-map commit must not carry a CAS baseline')
 assert.equal(saved.source.kind, 'chat')
 assert.equal(saved.source.sessionId, 'session-active')
+assert.equal(saved.workspaceKey, 'ws-test')
 assert.equal(happyDeps.locks.stateOf(launch.libraryId), undefined)
+const unresolvedWorkspaceDeps = makeDeps({ workspaceKeyOfAgent: () => undefined })
+const unresolvedWorkspaceTools = createChatMindmapTools(unresolvedWorkspaceDeps)
+await assert.rejects(() => unresolvedWorkspaceTools.generate.execute({ context: '# New\n## Map' }, { agent: { id: 'missing-workspace' } }), /workspace identity unavailable/)
+console.log('tools new-map workspace identity tests passed')
 console.log('tools launcher happy path tests passed')
 
 // ---------------------------------------------------------------------------
@@ -246,6 +252,15 @@ const existingSave = existingDeps.saveCalls[0]
 assert.equal(existingSave.expectedRecordVersion, 7)
 assert.equal(existingSave.config.maxNodes, 123, 'per-map settings must win over caller overrides')
 assert.equal(existingSave.libraryId, 'map-existing')
+
+const scopedExisting = makeRecord({ libraryId: 'map-scoped', workspaceKey: 'ws-aaa' })
+const scopedDeps = makeDeps({
+  loadRecord: async (id) => id === 'map-scoped' ? scopedExisting : null,
+  workspaceKeyOfAgent: () => 'ws-bbb',
+})
+const scopedTools = createChatMindmapTools(scopedDeps)
+await assert.rejects(() => scopedTools.generate.execute({ context: '# Hidden\n## Branch', libraryId: 'map-scoped' }, { agent: { id: 'other' } }), /mindmap not found/)
+console.log('tools generation workspace fence tests passed')
 console.log('tools existing-map CAS tests passed')
 
 // ---------------------------------------------------------------------------

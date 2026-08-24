@@ -338,6 +338,7 @@ export async function saveMindmap(input: {
   document: MindmapDocument
   config?: Partial<MindmapConfig>
   source?: MindmapSource
+  workspaceKey?: string
   archived?: boolean
   rotatePrevious?: boolean
   expectedUpdatedAt?: string
@@ -366,7 +367,7 @@ export async function saveMindmap(input: {
       recordVersion: existing?.recordVersion ?? 0,
       libraryId: id,
       title: boundedString(input.title || document.title, document.title, MAX_TITLE_LENGTH),
-      workspaceKey: existing?.workspaceKey ?? LEGACY_UNSCOPED_WORKSPACE,
+      workspaceKey: existing?.workspaceKey ?? input.workspaceKey ?? LEGACY_UNSCOPED_WORKSPACE,
       current: document,
       ...(previous ? { previous } : {}),
       previewCurrent,

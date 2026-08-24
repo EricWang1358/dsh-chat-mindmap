@@ -220,12 +220,15 @@ for (const bad of [
   { title: 'T', outline: '   ' },
   { title: 'T', outline: 'x'.repeat(200_001) },
   { title: 'T', outline: '# Only root' },
-  { title: 'T', outline: '# A\n- bullet only' },
+  { title: 'T', outline: '# A' },
   null,
   { title: 7, outline: '# R\n## C' },
 ]) {
   assert.throws(() => validateAgentOutlineResult(bad), /INVALID_AGENT_OUTLINE|outline|title/, JSON.stringify(bad))
 }
+
+const bulletStrict = buildStrictOutlineDocument({ title: 'Bullet', outline: '# Bullet\n- Child A\n- Child B' })
+assert.equal(bulletStrict.document.root.children?.length, 2)
 
 const strict = buildStrictOutlineDocument({ title: 'Strict', outline: '# Strict\n## Child' })
 assert.equal(strict.document.title, 'Strict')

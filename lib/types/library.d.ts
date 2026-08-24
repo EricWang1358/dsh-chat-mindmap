@@ -58,6 +58,7 @@ export declare function saveMindmap(input: {
     document: MindmapDocument;
     config?: Partial<MindmapConfig>;
     source?: MindmapSource;
+    workspaceKey?: string;
     archived?: boolean;
     rotatePrevious?: boolean;
     expectedUpdatedAt?: string;

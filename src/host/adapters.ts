@@ -60,6 +60,9 @@ export interface PanelStartInput {
   /** External cancellation channel (e.g. user cancel); owned by the caller. */
   controller?: AbortController
   timeoutMs?: number
+  /** Version observed by the route before accepting this generation. */
+  expectedRecordVersion?: number
+  sessionId?: string
 }
 
 /**
@@ -82,7 +85,7 @@ export function createPanelGenerationAdapter(deps: PanelAdapterDeps) {
       const entry = deps.locks.tryAcquire(input.libraryId, runId)
       if (!entry) throw new DomainError('MINDMAP_BUSY', 'a generation for this mindmap is already running')
       const controller = input.controller ?? new AbortController()
-      const view = deps.registry.register({ runId, libraryId: input.libraryId, status: 'accepted', detail: '' }, controller)
+      const view = deps.registry.register({ runId, libraryId: input.libraryId, status: 'accepted', detail: '', ...(input.sessionId ? { sessionId: input.sessionId } : {}) }, controller)
       const done = this.settle(input, runId, view, controller)
       deps.registry.trackCompletion(done)
       return { view, done }
@@ -95,7 +98,7 @@ export function createPanelGenerationAdapter(deps: PanelAdapterDeps) {
         try {
           const source = await deps.promptSourceOf(input.libraryId)
           if (!source) throw new DomainError('MINDMAP_NOT_FOUND', 'mindmap not found')
-          const baseline = await deps.baselineVersionOf(input.libraryId)
+          const baseline = input.expectedRecordVersion ?? await deps.baselineVersionOf(input.libraryId)
           deps.locks.transition(input.libraryId, 'running')
           deps.registry.update(runId, { status: 'running', detail: input.label ? `${input.label}…` : 'generating outline…' })
           const outcome = await runOutlineGeneration(

@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 
 // ---------------------------------------------------------------------------
-// S3-W5 owned SVG preview dialog. Read-only by design: the only interactive
+// S3-W5 owned image preview dialog. Read-only by design: the only interactive
 // affordances are the backdrop and the explicit close button, both wired to
 // the single onClose callback. Tab navigation is trapped inside the dialog
 // through the pure cycleFocus helper (directly unit-testable). DialogSurface
@@ -18,13 +18,13 @@ export function cycleFocus(count: number, current: number, forward: boolean): nu
 
 const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
-export interface SvgPreviewDialogProps { src: string; alt: string; onClose(): void }
+export interface ImagePreviewDialogProps { src: string; alt: string; onClose(): void }
 
-export function SvgPreviewDialog(props: SvgPreviewDialogProps): ReactElement {
+export function ImagePreviewDialog(props: ImagePreviewDialogProps): ReactElement {
   return createPortal(<DialogSurface {...props} />, window.document.body)
 }
 
-export function DialogSurface({ src, alt, onClose }: SvgPreviewDialogProps): ReactElement {
+export function DialogSurface({ src, alt, onClose }: ImagePreviewDialogProps): ReactElement {
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
@@ -57,7 +57,7 @@ export function DialogSurface({ src, alt, onClose }: SvgPreviewDialogProps): Rea
     }
   }, [onClose])
   return (
-    <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='脑图 SVG 预览' style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center' }}>
+    <div ref={dialogRef} role='dialog' aria-modal='true' aria-label='脑图图片预览' style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'grid', placeItems: 'center' }}>
       <button type='button' aria-label='关闭预览' onClick={onClose} style={{ position: 'absolute', inset: 0, border: 0, background: 'rgba(2,6,23,.78)', cursor: 'default' }} />
       <section style={{ position: 'relative', zIndex: 1, maxWidth: '92vw', maxHeight: '92vh', padding: '12px', background: 'var(--dsw-alias-bg-base,#0f172a)', borderRadius: '10px' }}>
         <img src={src} alt={alt} style={{ display: 'block', maxWidth: '88vw', maxHeight: '82vh', background: 'var(--dsw-alias-bg-base,#fff)' }} />
