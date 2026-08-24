@@ -1,6 +1,6 @@
 {
   "name": "@ericwang1358/dsh-chat-mindmap",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Generate editable mind maps from agent-provided chat context inside DSH.",
   "type": "module",
   "main": "./lib/index.js",
