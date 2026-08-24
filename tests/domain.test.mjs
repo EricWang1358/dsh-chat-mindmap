@@ -45,6 +45,7 @@ assert.deepEqual(fallback, {
   defaultContextLimit: 80_000,
   defaultLanguage: 'auto',
   focusGeneratedMap: false,
+  onboardingSeen: false,
 })
 assert.deepEqual(normalizeMindmapSettings({}), fallback)
 assert.equal(normalizeMindmapSettings({ defaultDensity: 'huge' }).defaultDensity, 'standard')
@@ -53,8 +54,9 @@ assert.equal(normalizeMindmapSettings({ defaultMaxNodes: 99_999 }).defaultMaxNod
 assert.equal(normalizeMindmapSettings({ defaultContextLimit: 'x' }).defaultContextLimit, 80_000)
 assert.equal(normalizeMindmapSettings({ defaultLayout: 'fishBone' }).defaultLayout, 'fishBone')
 assert.equal(normalizeMindmapSettings({ focusGeneratedMap: 1 }).focusGeneratedMap, false)
+assert.equal(normalizeMindmapSettings({ onboardingSeen: 1 }).onboardingSeen, false)
 
-const custom = normalizeMindmapSettings({ defaultTheme: 'ocean', defaultDensity: 'compact', defaultMaxNodes: 120, focusGeneratedMap: true })
+const custom = normalizeMindmapSettings({ defaultTheme: 'ocean', defaultDensity: 'compact', defaultMaxNodes: 120, focusGeneratedMap: true, onboardingSeen: true })
 assert.deepEqual(custom, {
   defaultLayout: 'logicalStructure',
   defaultTheme: 'ocean',
@@ -63,6 +65,7 @@ assert.deepEqual(custom, {
   defaultContextLimit: 80_000,
   defaultLanguage: 'auto',
   focusGeneratedMap: true,
+  onboardingSeen: true,
 })
 
 const merged = resolveNewRecordConfig(custom, { theme: 'forest', instruction: '重点风险', maxNodes: 500 })

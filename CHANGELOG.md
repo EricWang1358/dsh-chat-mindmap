@@ -1,10 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.2.6 — 2026-08-25
 
 ### Added
 
-- Add a guided, actionable first-use state for an empty session: generate in chat, refine on canvas, then export. The primary action opens the existing scoped create-from-text flow.
+- Add an interactive three-step MVP guide for the mindmap workspace: create from content, refine on the canvas, then export in the required format.
+- Show the guide automatically for a first-time empty session, offer replay from the workspace toolbar and plugin settings, and persist dismissal through the official DSH settings scope when available.
+- Link each guide step to a real workspace action: scoped create-from-text, node properties, or More actions.
+
+### Improved
+
+- Replace the permanent three-card empty-state explanation with a calmer empty workspace and a dedicated, keyboard-accessible walkthrough that restores focus when closed.
+
+### Verification
+
+- TypeScript typecheck, full automated tests, package verification, bundle budget, SAST, release-readiness checks, and GitHub Actions CI are required before release.
 
 ## 0.2.5 — 2026-08-24
 

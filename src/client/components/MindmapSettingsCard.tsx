@@ -9,6 +9,7 @@ export type CardSettings = {
   defaultContextLimit: number
   defaultLanguage: string
   focusGeneratedMap: boolean
+  onboardingSeen: boolean
 }
 
 const LAYOUT_CHOICES = ['logicalStructure', 'mindMap', 'organizationStructure', 'fishbone', 'fishbone2', 'catalogOrganization']
@@ -55,5 +56,8 @@ export function MindmapSettingsCard({ scope }: { scope: SettingsScope<CardSettin
     createElement(Row, { label: '默认密度', control: select('defaultDensity', DENSITY_CHOICES) }),
     createElement(Row, { label: '默认最多节点（8–2000）', control: number('defaultMaxNodes', 8, 2000) }),
     createElement(Row, { label: '默认上下文预算（8000–200000）', control: number('defaultContextLimit', 8000, 200000, 1000) }),
-    createElement(Row, { label: '新图聚焦到生成结果', control: createElement('input', { type: 'checkbox', checked: value.focusGeneratedMap === true, onChange: (event: Event) => set('focusGeneratedMap', (event.target as HTMLInputElement).checked) }) }))
+    createElement(Row, { label: '新图聚焦到生成结果', control: createElement('input', { type: 'checkbox', checked: value.focusGeneratedMap === true, onChange: (event: Event) => set('focusGeneratedMap', (event.target as HTMLInputElement).checked) }) }),
+    createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingTop: '4px', borderTop: '1px solid var(--dsw-alias-border-l1)' } },
+      createElement('div', null, createElement('strong', { style: { display: 'block', fontSize: '13px' } }, '使用指南'), createElement('small', { style: { display: 'block', marginTop: '2px', color: 'var(--dsw-alias-label-secondary)' } }, '重新打开脑图工作台的三步操作指南。')),
+      createElement('button', { type: 'button', onClick: () => set('onboardingSeen', false), style: { ...fieldStyle, cursor: 'pointer', whiteSpace: 'nowrap' } }, '重新查看')))
 }

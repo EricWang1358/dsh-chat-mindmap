@@ -81,9 +81,16 @@ assert.equal(completionSnapshot.id, jobId)
 assert.equal(read.text, 'gate0-output')
 assert.equal(read.snapshot.status, 'completed')
 pass('G0-3-fixture', 'Jobs registry completion/read 生命周期', 'Real LocalJobRegistry fixture starts a job, settles it, receives exactly one onJobDone callback, and reads the final output through the registry read contract.', 'runtime-fixture')
-const g03Evidence = await readFile(g03LiveEvidence, 'utf8')
-for (const marker of ['pwsh-1', 'LIVE_GATE0_DONE', 'completion notification', 'job_output', 'completed', 'exit code: `0`', 'console errors observed during the check: `0`']) assert.equal(g03Evidence.includes(marker), true, `missing G0-3 evidence: ${marker}`)
-pass('G0-3-live', 'owned Job 真实父 Agent 通信', 'Supplied GUI transcript evidence records pwsh-1, LIVE_GATE0_DONE, owner completion notification before job_output, completed, exit code 0, and zero browser console errors. Presentation-tool follow-up is explicitly not inferred.', 'live-transcript')
+const g03Evidence = await readFile(g03LiveEvidence, 'utf8').catch((error) => {
+  if (error?.code === 'ENOENT') return undefined
+  throw error
+})
+if (g03Evidence) {
+  for (const marker of ['pwsh-1', 'LIVE_GATE0_DONE', 'completion notification', 'job_output', 'completed', 'exit code: `0`', 'console errors observed during the check: `0`']) assert.equal(g03Evidence.includes(marker), true, `missing G0-3 evidence: ${marker}`)
+  pass('G0-3-live', 'owned Job 真实父 Agent 通信', 'Supplied GUI transcript evidence records pwsh-1, LIVE_GATE0_DONE, owner completion notification before job_output, completed, exit code 0, and zero browser console errors. Presentation-tool follow-up is explicitly not inferred.', 'live-transcript')
+} else {
+  pending('G0-3-live', 'owned Job 真实父 Agent 通信', 'Requires the local GUI transcript PHASE_0_G0_3_LIVE_TRANSCRIPT.md. Historical live evidence is intentionally excluded from the public repository, so its absence is reported as pending instead of failing ordinary CI.')
+}
 
 const toolMeta = JSON.parse(await readFile(toolPackage, 'utf8'))
 const runtimeMeta = JSON.parse(await readFile(runtimePackage, 'utf8'))

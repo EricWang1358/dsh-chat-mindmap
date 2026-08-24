@@ -8,6 +8,7 @@ export interface MindmapSettings {
     defaultContextLimit: number;
     defaultLanguage: string;
     focusGeneratedMap: boolean;
+    onboardingSeen: boolean;
 }
 export declare const DEFAULT_SETTINGS: MindmapSettings;
 export declare function normalizeMindmapSettings(value?: unknown): MindmapSettings;

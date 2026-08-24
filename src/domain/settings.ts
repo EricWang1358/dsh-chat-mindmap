@@ -19,6 +19,7 @@ export interface MindmapSettings {
   defaultContextLimit: number
   defaultLanguage: string
   focusGeneratedMap: boolean
+  onboardingSeen: boolean
 }
 
 const MAX_SETTING_STRING_LENGTH = 80
@@ -31,6 +32,7 @@ export const DEFAULT_SETTINGS: MindmapSettings = {
   defaultContextLimit: DEFAULT_MINDMAP_CONFIG.contextLimit,
   defaultLanguage: DEFAULT_MINDMAP_CONFIG.language,
   focusGeneratedMap: false,
+  onboardingSeen: false,
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -57,6 +59,7 @@ export function normalizeMindmapSettings(value?: unknown): MindmapSettings {
     defaultContextLimit: clampedNumber(input.defaultContextLimit, DEFAULT_SETTINGS.defaultContextLimit, 8_000, 200_000),
     defaultLanguage: boundedString(input.defaultLanguage, DEFAULT_SETTINGS.defaultLanguage, 32),
     focusGeneratedMap: input.focusGeneratedMap === true,
+    onboardingSeen: input.onboardingSeen === true,
   }
 }
 

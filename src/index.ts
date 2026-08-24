@@ -66,6 +66,7 @@ const SETTINGS_SCHEMA = Schema.object({
   defaultContextLimit: Schema.number().default(80_000),
   defaultLanguage: Schema.string().default('auto'),
   focusGeneratedMap: Schema.boolean().default(false),
+  onboardingSeen: Schema.boolean().default(false),
 })
 
 function cwdOfAgent(agent: unknown): string | undefined {
