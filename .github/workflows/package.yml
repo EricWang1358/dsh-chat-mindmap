@@ -40,7 +40,7 @@ jobs:
         run: npm pack --json > pack-result.json
 
       - name: Upload publishable tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dsh-chat-mindmap-${{ github.sha }}
           path: |
