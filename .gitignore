@@ -4,4 +4,11 @@ lib/
 *.tgz
 .test-mindmap-home/
 .npm-cache/
-docs/
+# Historical verification notes stay local. README product screenshots are public.
+docs/*
+!docs/screenshots/
+docs/screenshots/*
+!docs/screenshots/workspace-overview.png
+!docs/screenshots/guided-first-use.png
+!docs/screenshots/node-editing-and-themes.png
+!docs/screenshots/export-and-version-controls.png
