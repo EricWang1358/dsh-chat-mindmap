@@ -31,7 +31,7 @@ type MindmapConfig = { layout: string; density: string; maxNodes: number; theme:
 type MindmapSource = { kind: string; name?: string; attachmentId?: string; sessionId?: string; workspaceId?: string }
 type MindmapRecord = { libraryId: string; title: string; current: MindmapDocument; previous?: MindmapDocument; config: MindmapConfig; source?: MindmapSource; archived?: boolean; updatedAt: string; recordVersion?: number }
 type MindmapSummary = { libraryId: string; title: string; source?: MindmapSource; config: MindmapConfig; updatedAt: string; hasPrevious: boolean; archived: boolean; nodeCount: number }
-type PanelRunView = { runId: string; libraryId: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; detail: string; noteLength?: number; childId?: string; revisionId?: string }
+type PanelRunView = { runId: string; libraryId: string; status: 'accepted' | 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled'; detail: string; noteLength?: number; childId?: string; revisionId?: string }
 type SessionService = { binding(id: string): { session?: { getSnapshot(): unknown; loadOlder(): Promise<void> } } | undefined }
 
 const DEFAULT_RENDER_COLLAPSE_DEPTH = 2
@@ -365,7 +365,7 @@ export function EmptyState({ kind, localeId, onCreate, onOpenGuide }: { kind: Em
       createElement('button', { type: 'button', onClick: onCreate, disabled: !onCreate, style: { ...compactButtonStyle(true), padding: '8px 12px', background: 'var(--dsw-alias-brand-primary,#14b8a6)', borderColor: 'var(--dsw-alias-brand-primary,#14b8a6)', color: 'var(--dsw-alias-bg-base,#111827)' }, 'data-mm-onboarding-create': 'true', 'data-mm-action': 'true' }, t('empty.session.primary'))))
 }
 
-export const regenerateUnavailableWhileRunning = (panelRun: PanelRunView | null | undefined): boolean => panelRun !== undefined && panelRun !== null && panelRun.status === 'running'
+export const regenerateUnavailableWhileRunning = (panelRun: PanelRunView | null | undefined): boolean => panelRun !== undefined && panelRun !== null && (panelRun.status === 'running' || panelRun.status === 'accepted')
 
 type RegenerateModalProps = { record: MindmapRecord; panelRunning: boolean; sessionAvailable: boolean; draft: string; onDraftChange: (next: string) => void; onClose: () => void; onConfirm: () => void }
 
@@ -572,13 +572,28 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
     return () => { active = false }
   }, [selectedId, sessionId])
   useEffect(() => {
-    if (!panelRun || panelRun.status !== 'running') return
+    // The 202 from /regenerate returns the view while its status is still
+    // 'accepted' (the server only flips it to 'running' inside the async
+    // settle). Polling must start as soon as a runId exists, otherwise the
+    // transition to 'running' and the eventual completion/failure are never
+    // observed and the original mindmap is never refreshed.
+    if (!panelRun || (panelRun.status !== 'running' && panelRun.status !== 'accepted')) return
     let active = true
-    const poll = () => void api<PanelRunView>(`/panel-runs/${encodeURIComponent(panelRun.runId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((next) => {
+    // Lock onto the libraryId this run was started for: the user may switch
+    // to a different mindmap while the subagent is still running, and the
+    // completion callback must not overwrite an unrelated record that was
+    // loaded into state after the run was started.
+    const targetLibraryId = panelRun.libraryId
+    const targetRunId = panelRun.runId
+    const poll = () => void api<PanelRunView>(`/panel-runs/${encodeURIComponent(targetRunId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((next) => {
       if (!active) return
-      setPanelRun(next); setStatus(next.detail)
-      if (next.status === 'completed') { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active) { setRecord(updated); void refresh(true) } }) }
-    }).catch((error) => { if (active) setStatus(`重新生成状态读取失败：${String(error)}`) })
+      setPanelRun(next)
+      // Only echo the run's detail to the global status when the user is
+      // still on the same record that the run belongs to; otherwise the
+      // banner above the canvas already conveys the run's state.
+      if (recordRef.current?.libraryId === targetLibraryId) setStatus(next.detail)
+      if (next.status === 'completed' && next.libraryId === targetLibraryId) { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active && recordRef.current?.libraryId === targetLibraryId) { setRecord(updated); void refresh(true) } }) }
+    }).catch((error) => { if (active && recordRef.current?.libraryId === targetLibraryId) setStatus(`重新生成状态读取失败：${String(error)}`) })
     poll()
     const timer = window.setInterval(poll, 1_000)
     return () => { active = false; window.clearInterval(timer) }
@@ -658,7 +673,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
       .catch((error) => setStatus('删除失败：' + (error instanceof Error ? error.message : String(error))))
   }
   const cancelRegenerate = () => {
-    if (!panelRun || panelRun.status !== 'running') return
+    if (!panelRun || (panelRun.status !== 'running' && panelRun.status !== 'accepted')) return
     void api<{ runId: string; status: string }>(`/panel-runs/${encodeURIComponent(panelRun.runId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`, { method: 'DELETE' })
       .then(() => setStatus('正在取消 fork 子代理…'))
       .catch((error) => setStatus(`取消失败：${String(error)}`))
@@ -835,10 +850,10 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
         ),
       ) : null,
       createElement('section', { 'data-mm-glass': 'true', 'aria-label': '脑图画布', style: { ...glassSurfaceStyle('strong'), display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } },
-        record && panelRun?.libraryId === record.libraryId ? createElement('div', { role: 'status', style: { display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 8px 0', padding: '8px 10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#475569) 72%, transparent)', borderRadius: '10px', background: panelRun.status === 'failed' ? 'color-mix(in srgb, var(--dsw-alias-danger,var(--dsw-alias-label-primary,#e2e8f0)) 14%, transparent)' : panelRun.status === 'completed' ? 'color-mix(in srgb, var(--dsw-alias-success,var(--dsw-alias-brand-primary,#14b8a6)) 14%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-bg-layer-2,#23262d) 74%, transparent)' } },
-          createElement('strong', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' } }, panelRun.status === 'running' ? [createElement(DswStateDot, { key: 'dot', tone: 'running', label: '运行中' }), '正在重新生成'] : panelRun.status === 'completed' ? [createElement(DswStateDot, { key: 'dot', tone: 'ok', label: '完成' }), '重新生成完成'] : panelRun.status === 'cancelled' ? '重新生成已取消' : '重新生成失败'),
+        record && panelRun?.libraryId === record.libraryId ? createElement('div', { role: 'status', style: { display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 8px 0', padding: '8px 10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-border-l1,#475569) 72%, transparent)', borderRadius: '10px', background: panelRun.status === 'failed' || panelRun.status === 'timed_out' ? 'color-mix(in srgb, var(--dsw-alias-danger,var(--dsw-alias-label-primary,#e2e8f0)) 14%, transparent)' : panelRun.status === 'completed' ? 'color-mix(in srgb, var(--dsw-alias-success,var(--dsw-alias-brand-primary,#14b8a6)) 14%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-bg-layer-2,#23262d) 74%, transparent)' } },
+          createElement('strong', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' } }, panelRun.status === 'accepted' || panelRun.status === 'running' ? [createElement(DswStateDot, { key: 'dot', tone: 'running', label: '运行中' }), '正在重新生成'] : panelRun.status === 'completed' ? [createElement(DswStateDot, { key: 'dot', tone: 'ok', label: '完成' }), '重新生成完成'] : panelRun.status === 'cancelled' ? '重新生成已取消' : panelRun.status === 'timed_out' ? '重新生成超时' : '重新生成失败'),
           createElement('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary,#94a3b8)' } }, panelRun.detail, panelRun.noteLength ? ` · 已传入 ${panelRun.noteLength} 字备注` : null),
-          panelRun.status === 'running' ? createElement('button', { type: 'button', onClick: cancelRegenerate, style: { ...compactButtonStyle(), marginLeft: 'auto' }, 'data-mm-action': 'true' }, '取消') : null,
+          (panelRun.status === 'running' || panelRun.status === 'accepted') ? createElement('button', { type: 'button', onClick: cancelRegenerate, style: { ...compactButtonStyle(), marginLeft: 'auto' }, 'data-mm-action': 'true' }, '取消') : null,
         ) : null,
         record ? createElement('div', { style: { display: 'flex', flexDirection: 'column', position: 'relative', flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden' } },
           createElement(MapCanvas, { key: mountKeyOf(record), record, onDocumentChange: persistDocument, onActions: setMapActions, onFullscreenChange: () => undefined, onNodeSelect: selectNode }),
