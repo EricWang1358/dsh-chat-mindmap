@@ -12,3 +12,12 @@ docs/screenshots/*
 !docs/screenshots/guided-first-use.png
 !docs/screenshots/node-editing-and-themes.png
 !docs/screenshots/export-and-version-controls.png
+!docs/screenshots/chat-result-card.png
+!docs/screenshots/node-inspector.png
+!docs/screenshots/regenerate-with-requirement.png
+!docs/screenshots/regenerated-seven-node-result.png
+!docs/screenshots/more-actions-menu.png
+!docs/screenshots/layout-theme-callouts.png
+!docs/screenshots/regeneration-running-callout.png
+!docs/screenshots/fullscreen-node-editing.png
+!docs/screenshots/large-map-workspace.png
