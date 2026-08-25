@@ -1,21 +1,25 @@
 # 🧠 DSH Chat Mindmap
 
-> 把 DSH 对话上下文变成可编辑、可协作整理、可导出的思维导图。
+> 从一段对话，到一张可继续推敲、重组并交付的脑图。
 
 [![npm](https://img.shields.io/npm/v/@ericwang1358/dsh-chat-mindmap?label=npm)](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap)
 [![license](https://img.shields.io/npm/l/@ericwang1358/dsh-chat-mindmap)](LICENSE)
 
-DSH Chat Mindmap 是一个公开发布的 DSH Web 插件。它把 Agent 已掌握的对话上下文整理成结构化脑图，并提供会话范围浏览、画布编辑、版本恢复、重新生成与多格式导出能力。
+DSH Chat Mindmap 是一个 DSH Web 插件：Agent 负责把对话上下文整理成结构，脑图工作台负责把结构变成成果。生成后不止得到一张图片，而是得到一份能编辑、能回退版本、能重新生成、能导出的工作成果。
+
+![DSH Chat Mindmap 工作台总览](docs/screenshots/workspace-overview.png)
+
+*一个真实 DSH 工作台：范围、脑图库、画布、状态与操作集中在同一处。*
 
 ## 安装
 
-### 在 DSH Web 中使用（推荐）
+### 在 DSH Web 中使用
 
 ```bash
 dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap
 ```
 
-重启 DSH Web 后，在会话的 **脑图** 标签中打开工作台。
+重启 DSH Web 后，打开任一会话的 **脑图** 标签。
 
 ### 作为 npm 依赖安装
 
@@ -23,47 +27,99 @@ dsh plugin --profile web add github:EricWang1358/dsh-chat-mindmap
 npm install @ericwang1358/dsh-chat-mindmap@latest
 ```
 
-适用于将插件纳入自己的 DSH composition 或发布流程。最新公开版本以 [npm Registry](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap) 的 `latest` tag 为准。
+适合把插件纳入自己的 DSH composition 或发布流程。公开版本以 [npm Registry](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap) 的 `latest` tag 为准。
 
 ## 60 秒上手
 
-1. 在 DSH 对话中调用 `generate_chat_mindmap`，或让 Agent 根据当前上下文生成脑图。
-2. 生成完成后，聊天中的操作卡会直接打开对应脑图页；不依赖聊天容器中的图片预览。
-3. 在 **脑图** 标签中编辑节点、添加备注、切换布局或主题；修改会自动保存。
-4. 首次进入空会话时，脑图页会打开三步引导：从内容创建、在画布整理、按格式导出。引导只连接已有的工作台操作，不会伪造聊天侧能力。
-5. 使用 **更多操作** 导出、归档、恢复版本或重新生成。
+1. 在对话中请 Agent 基于当前上下文生成脑图，或调用 `generate_chat_mindmap`。
+2. 等待后台任务完成，聊天中的操作卡会直接打开对应脑图页；不再依赖聊天容器对 PNG/SVG 的预览兼容性。
+3. 在 **脑图** 页编辑节点、调整布局与主题。修改会自动保存。
+4. 用顶部范围切换查看 **本会话** 或 **全部脑图**，再从左侧库选择要继续处理的内容。
+5. 通过 **更多操作** 导出、归档、删除、恢复重新生成前的版本，或再次让 Agent 整理。
 
-## 你会得到什么
+第一次进入空会话时，工作台会给出简短引导；随时可以从 **指南** 或插件设置重新打开。
 
-| 从聊天到结构 | 可编辑工作台 | 可交付输出 |
-|---|---|---|
-| 后台 Job 异步生成，不阻塞继续对话 | SimpleMindMap 画布，支持节点编辑、备注、折叠、撤销/重做与全屏 | PNG、Markdown、JSON、XMind，以及 A3 打印 HTML |
+![三步首次使用引导](docs/screenshots/guided-first-use.png)
 
-## 核心能力
+*从内容创建、在画布整理、按格式交付。每一步都对应工作台中实际可用的操作。*
 
-- **会话优先，工作区可见**：默认只显示当前会话脑图；可切换到整个工作区。所有读取与写入都受 session/workspace identity fence 保护。
-- **稳定协作**：自动保存使用取消与序号围栏；并发编辑使用 `expectedRecordVersion` CAS，冲突后刷新而非静默覆盖。
-- **智能重新生成**：可附加补充要求，通过 DSH fork 子代理重新整理；运行中的任务可取消，旧版本可恢复。
-- **设计化画布**：深色磨砂玻璃工作台、固定宽度范围切换和键盘可访问的三步指南；可从工作台“指南”或插件设置重新打开，减少首次使用的不确定性。
-- **能力可降级**：DSH 未提供 jobs、subagents 或 settings 时，相关入口会明确禁用，不影响脑图工作台加载。
-- **中英双语**：自动跟随 DSH/浏览器语言偏好。
-
-## 使用流程
+## 从聊天到可交付成果
 
 ```text
-聊天上下文 → generate_chat_mindmap → 后台生成任务 → 操作卡直达脑图页
-                                                   ↓
-当前会话 ↔ 整个工作区 → 编辑 / 自动保存 / 版本恢复 / 重新生成
-                                                   ↓
-                                      更多操作 → 导出 / 归档 / 删除
+对话上下文
+    ↓
+generate_chat_mindmap / Agent 请求
+    ↓
+后台生成任务 ── 完成后提供“打开脑图”
+    ↓
+编辑、自动保存、主题与布局、版本恢复、重新生成
+    ↓
+PNG / Markdown / JSON / XMind 导出
 ```
+
+聊天卡只做清晰的入口。编辑、预览与导出都在专门的脑图工作台完成，因此不会把宿主聊天 UI 的图片支持当作核心依赖。
+
+## 功能一览
+
+| 能力 | 你可以做什么 |
+| --- | --- |
+| 对话生成 | 从当前 DSH 对话生成结构化脑图，后台执行，不打断继续对话。 |
+| 文本建图 | 在脑图库中从一段文本或 Markdown 手动创建脑图。 |
+| 作品直达 | 从聊天结果卡一键进入对应脑图页，不依赖内嵌图片预览。 |
+| 会话与工作区 | 默认聚焦当前会话；需要回看时切换到整个工作区。范围控件固定宽度，标题再长也不会让界面跳动。 |
+| 画布编辑 | 改节点标题和备注、增删节点、拖拽整理、缩放、全屏、展开/折叠、撤销/重做。 |
+| 视觉整理 | 提供逻辑图、思维导图、组织图、目录、时间线、鱼骨图等布局，以及多种主题。 |
+| 智能重整 | 对已有脑图补充要求后重新生成；运行中可取消，并可恢复重新生成前版本。 |
+| 多格式交付 | 直接导出 PNG、Markdown、JSON、XMind；SVG 可在工作台预览。 |
+| 生命周期 | 归档暂时收起不再使用的作品；删除前有确认，归档内容可恢复。 |
+
+## 在工作台里推敲结构
+
+节点不是一次性生成的静态结果。选中节点即可在右侧检查器中改标题或补充备注，并用布局、主题把同一份信息调成适合思考、汇报或复盘的形态。
+
+![节点编辑、布局与主题](docs/screenshots/node-editing-and-themes.png)
+
+工作台同时提供自动保存状态、缩放与全屏、撤销/重做、全量展开/折叠等日常动作。节点属性与 **更多操作** 由同一处浮层路由管理，打开一个会关闭另一个，避免两个 overlay 重叠抢占操作。
+
+## 导出、版本与整理
+
+把内容整理到满意后，打开 **更多操作**：
+
+![更多操作：导出、版本与整理](docs/screenshots/export-and-version-controls.png)
+
+| 区域 | 操作 | 用途 |
+| --- | --- | --- |
+| 画布 | 全部展开、全部折叠、折叠至第 2 层、预览 SVG | 在交付前快速调整可读性与查看图形细节。 |
+| 导出 | JSON、Markdown、XMind、PNG | 在结构数据、文档、主流脑图工具和图片之间切换。 |
+| 整理 | 恢复重新生成前版本、归档、删除 | 保留可逆的整理路径，减少误操作成本。 |
+
+重新生成适合处理“补上风险”“按时间线重组”“只保留行动项”这类二次要求。运行中的生成会显示状态并可取消；如果新结果不理想，可恢复到重新生成前的版本。
+
+## 范围、数据与可靠性
+
+工作台以会话为默认视角，同时允许浏览当前工作区。范围看的是数据，不是仅做 UI 筛选：读取、新建、编辑、删除、恢复、归档和重新生成均带有 session/workspace identity fence，防止跨工作区误读或误写。
+
+自动保存采用取消与顺序保护，避免较早的请求覆盖较新的编辑；并发写入使用 `expectedRecordVersion` 比较并交换，发生冲突时刷新而不是静默覆盖。切换会话后，列表、选择态、主题和布局缓存会同步刷新。
+
+## 个性化设置
+
+插件设置只影响之后新建的脑图，不会悄悄改写已有作品：
+
+| 设置 | 作用 |
+| --- | --- |
+| 默认布局与主题 | 为新图设定第一眼的结构与气质。 |
+| 密度与最大节点数 | 控制生成内容的颗粒度与规模。 |
+| 上下文限制 | 控制提供给生成任务的对话上下文范围。 |
+| 生成后聚焦与指南 | 决定生成完成后是否自动进入成果，以及是否显示首次使用引导。 |
+
+界面文案跟随 DSH 或浏览器的语言偏好，在中文和英文之间切换。
 
 ## 兼容性与边界
 
 - 运行环境：DSH Web、Node.js `>=22.18.0 <23`。
-- 生成能力依赖宿主提供的 Agent、jobs 与 fork/subagent 服务；没有这些可选能力时仍可浏览、编辑和导出已有脑图。
-- 插件不会新增第三方数据传输服务；生成内容使用你现有 DSH Agent/provider 配置，脑图记录按 workspace 作用域保存。
-- 聊天结果使用可访问的“打开脑图”操作，不再把 PNG/SVG 预览作为聊天容器的关键路径。
+- 生成能力取决于宿主提供的 Agent、jobs 与 fork/subagent 服务。缺少这些可选能力时，对应入口会清晰禁用，已有脑图仍可浏览、编辑和导出。
+- 插件不新增第三方数据传输服务。生成使用你现有的 DSH Agent/provider 配置，脑图记录按 workspace 作用域保存。
+- 工作台内置 SVG 预览；聊天结果一律以“打开脑图”作为可靠入口，以适配不同 DSH 聊天渲染环境。
 
 ## 为贡献者准备
 
@@ -72,14 +128,15 @@ npm ci --legacy-peer-deps
 npm run typecheck
 npm test
 npm run verify:sast
+npm run verify:bundle
 node scripts/verify-release-readiness.mjs
 npm run verify:package
 ```
 
-完整发布门禁还包括 `npm run verify:sast` 与 `npm run verify:bundle`。请不要使用 `npm audit fix --force` 改写锁定依赖；依赖升级应独立提交并经过完整 CI。
+依赖升级请独立提交并跑完完整 CI；不要用 `npm audit fix --force` 直接改写锁定依赖。
 
 ## 支持与许可
 
-- 源码与问题反馈：[GitHub Repository](https://github.com/EricWang1358/dsh-chat-mindmap) · [Issues](https://github.com/EricWang1358/dsh-chat-mindmap/issues)
+- 源码与反馈：[GitHub Repository](https://github.com/EricWang1358/dsh-chat-mindmap) · [Issues](https://github.com/EricWang1358/dsh-chat-mindmap/issues)
 - 发布包：[npm](https://www.npmjs.com/package/@ericwang1358/dsh-chat-mindmap)
 - 许可：[MIT](LICENSE)
