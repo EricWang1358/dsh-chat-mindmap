@@ -522,11 +522,18 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
   const autosaveAbort = useRef<AbortController | null>(null)
   const galleryRequestRef = useRef<{ key: string; promise: Promise<MindmapSummary[]> } | null>(null)
   const recordRef = useRef<MindmapRecord | null>(null)
+  // Live mirrors of state used by long-lived async callbacks (the regenerate
+  // poll) so a stale closure cannot apply a stale panelRun, a stale refresh,
+  // or a stale record against a newer generation or after the user switched
+  // to a different mindmap.
+  const panelRunRef = useRef<PanelRunView | null>(null)
+  const refreshRef = useRef<((force?: boolean) => void) | null>(null)
   useEffect(() => {
     if (previousOnboardingSeen.current && !onboardingSeen) setGuideRequested(true)
     previousOnboardingSeen.current = onboardingSeen
   }, [onboardingSeen])
   useEffect(() => { recordRef.current = record }, [record])
+  useEffect(() => { panelRunRef.current = panelRun }, [panelRun])
   useEffect(() => {
     const workspace = workspaceRef.current
     if (!workspace) return
@@ -563,6 +570,7 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
     })
     return () => { active = false }
   }, [scope, showArchived, sessionId])
+  useEffect(() => { refreshRef.current = refresh }, [refresh])
   useEffect(() => refresh(), [refresh])
   useEffect(() => {
     let active = true
@@ -587,13 +595,16 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
     const targetRunId = panelRun.runId
     const poll = () => void api<PanelRunView>(`/panel-runs/${encodeURIComponent(targetRunId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((next) => {
       if (!active) return
+      // Drop late responses for runs the user has already abandoned (cancel,
+      // or started a newer run for the same record).
+      if (panelRunRef.current?.runId !== targetRunId) return
       setPanelRun(next)
       // Only echo the run's detail to the global status when the user is
       // still on the same record that the run belongs to; otherwise the
       // banner above the canvas already conveys the run's state.
       if (recordRef.current?.libraryId === targetLibraryId) setStatus(next.detail)
-      if (next.status === 'completed' && next.libraryId === targetLibraryId) { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active && recordRef.current?.libraryId === targetLibraryId) { setRecord(updated); void refresh(true) } }) }
-    }).catch((error) => { if (active && recordRef.current?.libraryId === targetLibraryId) setStatus(`重新生成状态读取失败：${String(error)}`) })
+      if (next.status === 'completed' && next.libraryId === targetLibraryId) { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active && panelRunRef.current?.runId === targetRunId && recordRef.current?.libraryId === targetLibraryId) { setRecord(updated); void refreshRef.current?.(true) } }) }
+    }).catch((error) => { if (active && panelRunRef.current?.runId === targetRunId && recordRef.current?.libraryId === targetLibraryId) setStatus(`重新生成状态读取失败：${String(error)}`) })
     poll()
     const timer = window.setInterval(poll, 1_000)
     return () => { active = false; window.clearInterval(timer) }
