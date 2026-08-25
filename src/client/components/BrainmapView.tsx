@@ -367,6 +367,20 @@ export function EmptyState({ kind, localeId, onCreate, onOpenGuide }: { kind: Em
 
 export const regenerateUnavailableWhileRunning = (panelRun: PanelRunView | null | undefined): boolean => panelRun !== undefined && panelRun !== null && (panelRun.status === 'running' || panelRun.status === 'accepted')
 
+/**
+ * Pure guard for the panel-run poll: a response whose runId no longer matches
+ * the runId this effect was started for must be dropped, otherwise a late
+ * response for a cancelled/abandoned run could overwrite the record of a
+ * newer one or, when the user switched mindmaps, an unrelated record.
+ *
+ * Centralized here so the polling effect closure can call it with its
+ * captured `targetRunId` and the latest `panelRunRef.current`; tests drive
+ * the predicate directly without standing up a React tree.
+ */
+export function shouldDropPanelRunResponse(latest: PanelRunView | null | undefined, targetRunId: string): boolean {
+  return !latest || latest.runId !== targetRunId
+}
+
 type RegenerateModalProps = { record: MindmapRecord; panelRunning: boolean; sessionAvailable: boolean; draft: string; onDraftChange: (next: string) => void; onClose: () => void; onConfirm: () => void }
 
 /** §13.2 regenerate modal: supplemental note, source-unavailable hint, confirm. */
@@ -597,14 +611,14 @@ function BrainmapView(props: ConvViewProps & { sessions: SessionService; onboard
       if (!active) return
       // Drop late responses for runs the user has already abandoned (cancel,
       // or started a newer run for the same record).
-      if (panelRunRef.current?.runId !== targetRunId) return
+      if (shouldDropPanelRunResponse(panelRunRef.current, targetRunId)) return
       setPanelRun(next)
       // Only echo the run's detail to the global status when the user is
       // still on the same record that the run belongs to; otherwise the
       // banner above the canvas already conveys the run's state.
       if (recordRef.current?.libraryId === targetLibraryId) setStatus(next.detail)
-      if (next.status === 'completed' && next.libraryId === targetLibraryId) { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active && panelRunRef.current?.runId === targetRunId && recordRef.current?.libraryId === targetLibraryId) { setRecord(updated); void refreshRef.current?.(true) } }) }
-    }).catch((error) => { if (active && panelRunRef.current?.runId === targetRunId && recordRef.current?.libraryId === targetLibraryId) setStatus(`重新生成状态读取失败：${String(error)}`) })
+      if (next.status === 'completed' && next.libraryId === targetLibraryId) { void api<MindmapRecord>(`/maps/${encodeURIComponent(next.libraryId)}?sessionId=${encodeURIComponent(sessionId ?? '')}`).then((updated) => { if (active && !shouldDropPanelRunResponse(panelRunRef.current, targetRunId) && recordRef.current?.libraryId === targetLibraryId) { setRecord(updated); void refreshRef.current?.(true) } }) }
+    }).catch((error) => { if (active && !shouldDropPanelRunResponse(panelRunRef.current, targetRunId) && recordRef.current?.libraryId === targetLibraryId) setStatus(`重新生成状态读取失败：${String(error)}`) })
     poll()
     const timer = window.setInterval(poll, 1_000)
     return () => { active = false; window.clearInterval(timer) }
