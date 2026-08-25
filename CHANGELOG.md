@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.7 — 2026-08-25
+
+### Fixed
+
+- 修复脑图面板「重新生成」时，client 端轮询门闩仅匹配 `running`，错过 `accepted` → `running` → `completed` 的转换，导致子代理结果从未写回原脑图。门闩扩到 `running | accepted`，并同步 `regenerateUnavailableWhileRunning` 谓词、顶栏 cancel 按钮以及 `PanelRunView.status` 类型分支。
+- 增加 panel-run 轮询的陈旧响应守卫（`shouldDropPanelRunResponse` + `panelRunRef`/`refreshRef` 镜像），防止用户取消或重新启动 run 后，旧请求的迟到响应覆盖了用户已切换的脑图或更新后的新 run。
+- 重新生成完成时立即用服务端新 `countMindmapNodes` 同步 sidebar / header 节点数与 title / source / updatedAt，避免后台 gallery 刷新到达前 header 仍显示旧计数。
+- 脑图节点数 `nodeCountOf` 统一收敛到 `core.ts` 的 `countMindmapNodes`，client 端复算与 server `summaryOf` 永远一致。
+- 增加覆盖 `accepted → running → completed` 状态机、`shouldDropPanelRunResponse` 陈旧响应守卫、`countMindmapNodes` 一致性的针对性自动化测试。
+
+### Compatibility
+
+- devDep 范围由 `^0.1.0-rc.8` 升至 `^0.1.1-rc.2`，跟 DSH `next` 通道最新同步；`npm ci` 严格按 lock 装 0.1.1-rc.2，不再吃旧版 0.1.0-rc.8。
+- peerDep 仍保持 `>=0.1.0-rc <2`：宿主机实际安装的 DSH 若是 0.1.0-rc.8、0.1.1-rc.X、或未来任何 `<2` 的稳定/预发布，plugin 都会按 host 实际版本正常工作。这就是 0.2.7 "同一份 plugin 同时跟 DSH 0.1.0-rc 和 0.1.1-rc 两个分支" 的兼容性卖点。
+
+### Verification
+
+- typecheck、declaration compilation、client bundle、Core/Library/HTTP/Panel-regenerate-fix tests、SAST、bundle budget、release-readiness 与 0.2.6 同样的 gate 全部通过。
+
 ## 0.2.6 — 2026-08-25
 
 ### Added
