@@ -39,7 +39,7 @@ jobs:
       - name: Create npm tarball
         run: npm pack --json > pack-result.json
 
-      - name: Upload publishable tarball
+      - name: Upload publishable tarball as workflow artifact
         uses: actions/upload-artifact@v5
         with:
           name: dsh-chat-mindmap-${{ github.sha }}
@@ -48,3 +48,13 @@ jobs:
             pack-result.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Attach tarball to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            *.tgz
+            pack-result.json
+          fail_on_unmatched_files: true
